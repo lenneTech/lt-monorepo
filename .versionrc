@@ -1,0 +1,32 @@
+{
+  "bumpFiles": [
+    {
+      "filename": "package.json",
+      "type": "json"
+    },
+    {
+      "filename": "package-lock.json",
+      "type": "json"
+    },
+    {
+      "filename": "projects/api/package.json",
+      "type": "json"
+    },
+    {
+      "filename": "projects/api/package-lock.json",
+      "type": "json"
+    },
+    {
+      "filename": "projects/app/package.json",
+      "type": "json"
+    },
+    {
+      "filename": "projects/app/package-lock.json",
+      "type": "json"
+    },
+    {
+      "filename": "lerna.json",
+      "type": "json"
+    },
+  ]
+}
