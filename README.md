@@ -1,1 +1,3 @@
-# swaktiv
+# lt-monorepo
+
+Monorepo starter kit
