@@ -1,6 +1,6 @@
 {
   "name": "lt-monorepo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Monorepo starter kit",
   "author": "lenne.Tech <info@lenne.tech> (https://lenne.tech)",
   "license": "MIT",
@@ -24,9 +24,9 @@
     "release:major": "standard-version --release-as major"
   },
   "devDependencies": {
-    "lerna": "4.0.0",
-    "prettier": "2.6.0",
-    "husky": "7.0.4",
+    "lerna": "5.4.3",
+    "prettier": "2.7.1",
+    "husky": "8.0.1",
     "standard-version": "9.5.0"
   }
 }
