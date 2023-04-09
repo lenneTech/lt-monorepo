@@ -24,8 +24,8 @@
     "release:major": "standard-version --release-as major"
   },
   "devDependencies": {
-    "lerna": "6.5.1",
-    "prettier": "2.8.4",
+    "lerna": "6.6.1",
+    "prettier": "2.8.7",
     "husky": "8.0.3",
     "standard-version": "9.5.0"
   }
