@@ -18,15 +18,15 @@
     "format": "npm run prettier -- --write",
     "format:check": "npm run prettier -- --check",
     "format:staged": "npx pretty-quick --staged",
-    "prepare": "husky install",
-    "release": "standard-version",
-    "release:minor": "standard-version --release-as minor",
-    "release:major": "standard-version --release-as major"
+    "prepare": "husky",
+    "release": "commit-and-tag-version",
+    "release:minor": "commit-and-tag-version --release-as minor",
+    "release:major": "commit-and-tag-version --release-as major"
   },
   "devDependencies": {
-    "lerna": "6.6.1",
-    "prettier": "2.8.7",
-    "husky": "8.0.3",
-    "standard-version": "9.5.0"
+    "lerna": "8.0.2",
+    "prettier": "3.2.4",
+    "husky": "9.0.10",
+    "commit-and-tag-version": "12.2.0"
   }
 }

@@ -1,4 +1,8 @@
 node_modules
 .gitlab
+.github
 docs
 .husky
+.nuxt
+.output
+dist
