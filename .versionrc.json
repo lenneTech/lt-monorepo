@@ -27,6 +27,6 @@
     {
       "filename": "lerna.json",
       "type": "json"
-    },
+    }
   ]
 }
