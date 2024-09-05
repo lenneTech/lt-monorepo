@@ -28,12 +28,12 @@
     "release:major": "commit-and-tag-version --release-as major"
   },
   "devDependencies": {
-    "commit-and-tag-version": "12.2.0",
-    "husky": "9.0.10",
-    "lerna": "8.0.2",
-    "prettier": "3.2.4",
-    "eslint": "8.56.0",
-    "lint-staged": "15.2.2"
+    "commit-and-tag-version": "12.4.2",
+    "husky": "9.1.5",
+    "lerna": "8.1.8",
+    "prettier": "3.3.3",
+    "eslint": "8.57.0",
+    "lint-staged": "15.2.10"
   },
   "eslintConfig": {
     "root": true,
