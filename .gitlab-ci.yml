@@ -4,7 +4,6 @@
 # ======================================================================================================================
 stages:
   - test
-  - build
 
 # ======================================================================================================================
 # Docker image for runner
@@ -30,7 +29,7 @@ image: node:22-alpine
     - npm run init
 
 # ======================================================================================================================
-# Lint
+# Lint jobs
 # ======================================================================================================================
 lint:
   stage: test
@@ -41,21 +40,39 @@ lint:
     - npm run lint
 
 # ======================================================================================================================
-# Test
+# Tests jobs
 # ======================================================================================================================
-test:
+api:test:
   stage: test
   extends: .distributed
   only:
     - merge_requests
+  services: [mongo]
   script:
-    - npm run test
+    - npm run api:test
+
+app:test:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.47.2-noble
+  extends: .distributed
+  timeout: 20 hours 30 minutes
+  only:
+    - merge_requests
+  script:
+    - npm run app:test
+    - echo "https://$CI_PROJECT_NAMESPACE.gitlab.io/-/$CI_PROJECT_NAME/-/jobs/$CI_JOB_ID/artifacts/playwright-report/index.html"
+  artifacts:
+    when: always
+    paths:
+      - playwright-report
+    expire_in: 2 days
+
 
 # ======================================================================================================================
-# Build
+# Build jobs
 # ======================================================================================================================
 build:
-  stage: build
+  stage: test
   extends: .distributed
   only:
     - merge_requests
