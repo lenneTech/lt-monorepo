@@ -20,6 +20,7 @@
     "api:test": "cd projects/api && npm run test:ci",
     "app:test": "cd projects/app && npm run test",
     "lint": "lerna run --parallel lint",
+    "lint:fix": "lerna run --parallel lint:fix",
     "reinit": "rm -rf node_modules && rm -rf package-lock.json && npm cache clean --force && npm i && lerna run --parallel reinit",
     "prettier": "prettier \"*.{js,json,yml,md,html,ts}\" \"projects/**/*\"",
     "format": "npm run prettier -- --write",
@@ -31,17 +32,10 @@
     "release:major": "commit-and-tag-version --release-as major"
   },
   "devDependencies": {
-    "commit-and-tag-version": "12.4.2",
-    "husky": "9.1.5",
-    "lerna": "8.1.8",
-    "prettier": "3.3.3",
-    "eslint": "8.57.0",
-    "lint-staged": "15.2.10"
-  },
-  "eslintConfig": {
-    "root": true,
-    "ignorePatterns": [
-      ".eslintignore"
-    ]
+    "commit-and-tag-version": "12.6.0",
+    "eslint": "9.38.0",
+    "husky": "9.1.7",
+    "lerna": "9.0.0",
+    "prettier": "3.6.2"
   }
 }

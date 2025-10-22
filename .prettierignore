@@ -6,3 +6,4 @@ docs
 .nuxt
 .output
 dist
+.gitkeep
