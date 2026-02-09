@@ -88,14 +88,12 @@ This project build with modern frameworks to get a sustainable and fast experien
 
 - Backend:
   - [Nest.js](https://docs.nestjs.com/)
-  - [GraphQL](https://graphql.org/learn/)
 
 - Database:
   - [MongoDB](https://www.mongodb.com/docs/manual/)
 
 - Other:
   - [Docker](https://docs.docker.com/)
-  - [JWT](https://jwt.io/introduction) for authentication
 
 ## 📂 How to create a new db-collection
 

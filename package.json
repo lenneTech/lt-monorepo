@@ -1,6 +1,6 @@
 {
   "name": "lt-monorepo",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Monorepo starter kit",
   "author": "lenne.Tech <info@lenne.tech> (https://lenne.tech)",
   "license": "MIT",
@@ -21,21 +21,20 @@
     "app:test": "cd projects/app && npm run test",
     "lint": "lerna run --parallel lint",
     "lint:fix": "lerna run --parallel lint:fix",
-    "reinit": "rm -rf node_modules && rm -rf package-lock.json && npm cache clean --force && npm i && lerna run --parallel reinit",
-    "prettier": "prettier \"*.{js,json,yml,md,html,ts}\" \"projects/**/*\"",
-    "format": "npm run prettier -- --write",
-    "format:check": "npm run prettier -- --check",
-    "format:staged": "npx pretty-quick --staged",
+    "format": "lerna run --parallel format",
+    "format:check": "lerna run --parallel format:check",
+    "reinit": "rm -rf node_modules && rm -rf package-lock.json && npm i && lerna run --parallel reinit",
     "prepare": "husky",
     "release": "commit-and-tag-version",
     "release:minor": "commit-and-tag-version --release-as minor",
     "release:major": "commit-and-tag-version --release-as major"
   },
   "devDependencies": {
-    "commit-and-tag-version": "12.6.0",
-    "eslint": "9.38.0",
+    "commit-and-tag-version": "12.6.1",
     "husky": "9.1.7",
-    "lerna": "9.0.0",
-    "prettier": "3.6.2"
+    "lerna": "9.0.3"
+  },
+  "overrides": {
+    "tar": "7.5.7"
   }
 }
