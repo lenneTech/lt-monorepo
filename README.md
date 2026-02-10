@@ -30,6 +30,7 @@ The following systems are currently running:
 Make sure you have the following installed:
 
 - [Node.js](https://nodejs.org/en)
+- [pnpm](https://pnpm.io/) (package manager)
 - [MongoDB](https://www.mongodb.com/docs/manual/)
 - [Docker](https://docs.docker.com/) (optional, but recommended for deployment)
 
@@ -52,7 +53,7 @@ git clone <repository-url>
 cd <project-folder>
 
 # Install dependencies for app and api
-npm run init
+pnpm run init
 
 # Create environment variables
 cd projects/app
@@ -60,7 +61,7 @@ cp .env.example .env
 
 # Start project
 cd ../../
-npm run start
+pnpm run start
 ```
 
 ## 🛠️ Environment Variables
@@ -130,7 +131,7 @@ cd projects/app
 6. Now just type the following command:
 
 ```bash
-npm run generate-types
+pnpm run generate-types
 ```
 
 7. The updated types are generated and are ready to be used inside your app.

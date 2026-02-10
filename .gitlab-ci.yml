@@ -22,11 +22,14 @@ image: node:22-alpine
   cache:
     key:
       files:
-        - package-lock.json
+        - pnpm-lock.yaml
     paths:
-      - .npm/
+      - .pnpm-store/
   before_script:
-    - npm run init
+    - corepack enable
+    - corepack prepare pnpm@latest --activate
+    - pnpm config set store-dir .pnpm-store
+    - pnpm run init
 
 # ======================================================================================================================
 # Lint jobs
@@ -37,7 +40,7 @@ lint:
   only:
     - merge_requests
   script:
-    - npm run lint
+    - pnpm run lint
 
 # ======================================================================================================================
 # Tests jobs
@@ -49,7 +52,7 @@ api:test:
     - merge_requests
   services: [mongo]
   script:
-    - npm run api:test
+    - pnpm run api:test
 
 app:test:
   stage: test
@@ -59,7 +62,7 @@ app:test:
   only:
     - merge_requests
   script:
-    - npm run app:test
+    - pnpm run app:test
     - echo "https://$CI_PROJECT_NAMESPACE.gitlab.io/-/$CI_PROJECT_NAME/-/jobs/$CI_JOB_ID/artifacts/playwright-report/index.html"
   artifacts:
     when: always
@@ -76,4 +79,4 @@ build:
   only:
     - merge_requests
   script:
-    - npm run build
+    - pnpm run build
