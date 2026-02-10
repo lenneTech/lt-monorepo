@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.0](https://github.com/lenneTech/lt-monorepo/compare/v1.1.0...v2.0.0) (2026-02-10)
+
+
+### Features
+
+* add default pipelines ([cadff1d](https://github.com/lenneTech/lt-monorepo/commit/cadff1d7c591e5719fd3c4e0d6af17a553ba22e6))
+* add default pipelines ([e2b6600](https://github.com/lenneTech/lt-monorepo/commit/e2b660087e43d46020838d11cff6dc399d0ea1f9))
+* add new readme and update packages ([3a9fdfb](https://github.com/lenneTech/lt-monorepo/commit/3a9fdfb199d4ea96099b6d8daefddf7689489d6c))
+* **DEV-609:** update project configuration and improve README structure ([b470b86](https://github.com/lenneTech/lt-monorepo/commit/b470b86171c4cacbab2fed794b614e5f40124613))
+* replace npm and lerna with pnpm workspaces ([2a30394](https://github.com/lenneTech/lt-monorepo/commit/2a30394ac41c515e0cbb1f178403e54e4af0b1e3))
+
 ## 1.1.0 (2024-02-19)
 
 ### Features
