@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.1](https://github.com/lenneTech/lt-monorepo/compare/v2.0.0...v2.0.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* **ci:** fix pnpm initialization by installing corepack globally before enabling ([7657cf2](https://github.com/lenneTech/lt-monorepo/commit/7657cf26051dd831171579577dff5966fc1015f8))
+
 ## [2.0.0](https://github.com/lenneTech/lt-monorepo/compare/v1.1.0...v2.0.0) (2026-02-10)
 
 
