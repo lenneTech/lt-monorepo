@@ -26,8 +26,9 @@ image: node:22-alpine
     paths:
       - .pnpm-store/
   before_script:
+    - npm install -g corepack@latest
     - corepack enable
-    - corepack prepare pnpm@latest --activate
+    - corepack install
     - pnpm config set store-dir .pnpm-store
     - pnpm run init
 
