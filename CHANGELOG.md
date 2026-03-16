@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.2](https://github.com/lenneTech/lt-monorepo/compare/v2.0.1...v2.0.2) (2026-03-16)
+
+
+### Bug Fixes
+
+* **ci:** husky in Docker, native bindings, frozen-lockfile, Playwright image ([f5086c0](https://github.com/lenneTech/lt-monorepo/commit/f5086c0d49c228dd68151e38dcaa1507c0bed90e))
+
 ## [2.0.1](https://github.com/lenneTech/lt-monorepo/compare/v2.0.0...v2.0.1) (2026-02-12)
 
 
