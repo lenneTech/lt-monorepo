@@ -31,7 +31,7 @@
     "format": "pnpm -r --parallel run format",
     "format:check": "pnpm -r --parallel run format:check",
     "reinit": "rm -rf node_modules && rm -rf pnpm-lock.yaml && pnpm install && pnpm -r --parallel run reinit",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "release": "commit-and-tag-version",
     "release:minor": "commit-and-tag-version --release-as minor",
     "release:major": "commit-and-tag-version --release-as major"
@@ -39,5 +39,14 @@
   "devDependencies": {
     "commit-and-tag-version": "12.6.1",
     "husky": "9.1.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "bcrypt",
+      "esbuild",
+      "sharp",
+      "puppeteer"
+    ]
   }
 }
