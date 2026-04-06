@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.4](https://github.com/lenneTech/lt-monorepo/compare/v2.0.3...v2.0.4) (2026-04-06)
+
 ## [2.0.3](https://github.com/lenneTech/lt-monorepo/compare/v2.0.2...v2.0.3) (2026-04-04)
 
 ## [2.0.2](https://github.com/lenneTech/lt-monorepo/compare/v2.0.1...v2.0.2) (2026-03-16)
