@@ -77,6 +77,10 @@ Key files in `projects/app/node_modules/@lenne.tech/nuxt-extensions/`:
 | `dist/runtime/composables/` | Available composables (useBetterAuth, etc.) |
 | `dist/runtime/components/` | Available components |
 
+## Auth Middleware Pattern
+
+When implementing auth middleware in `projects/app/app/middleware/`, follow the read-only pattern from `@lenne.tech/nuxt-extensions`. Never mutate `lt-auth-state` directly — use `useLtAuth()` composable methods.
+
 ## Rules
 
 1. **Backend tasks** → Use `generating-nest-servers` skill
