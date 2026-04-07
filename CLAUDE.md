@@ -86,7 +86,7 @@ When implementing auth middleware in `projects/app/app/middleware/`, follow the 
 `model.collection.*`, `model.db.*`, and `connection.db.collection()` bypass all Mongoose security plugins (Tenant, Audit, RoleGuard, Password).
 Use Mongoose Model methods (`insertMany`, `bulkWrite`, `updateMany`, etc.) instead.
 
-**Performance exception:** If memory issues occur under high traffic, check if `CrudService.process()` overhead is the cause. Use `Model.insertMany()` / `Model.findByIdAndUpdate()` instead — these keep Mongoose plugins active without the process() pipeline.
+**Performance exception:** If memory issues occur under high traffic, check if `CrudService.process()` overhead is the cause. Use `Model.create(doc)` (fastest for single docs) or `Model.insertMany(docs)` (fastest for batches) instead of `CrudService.create()`. Use `findByIdAndUpdate().lean()` for updates, `findById().lean()` for read-only lookups. Defer complex logic to cron/queue in high-frequency paths.
 
 Details: `projects/api/node_modules/@lenne.tech/nest-server/CLAUDE.md` → "Native MongoDB Driver" and "CrudService process()".
 
