@@ -81,6 +81,15 @@ Key files in `projects/app/node_modules/@lenne.tech/nuxt-extensions/`:
 
 When implementing auth middleware in `projects/app/app/middleware/`, follow the read-only pattern from `@lenne.tech/nuxt-extensions`. Never mutate `lt-auth-state` directly — use `useLtAuth()` composable methods.
 
+## Native MongoDB Driver — Forbidden
+
+`model.collection.*`, `model.db.*`, and `connection.db.collection()` bypass all Mongoose security plugins (Tenant, Audit, RoleGuard, Password).
+Use Mongoose Model methods (`insertMany`, `bulkWrite`, `updateMany`, etc.) instead.
+
+**Performance exception:** If memory issues occur under high traffic, check if `CrudService.process()` overhead is the cause. Use `Model.insertMany()` / `Model.findByIdAndUpdate()` instead — these keep Mongoose plugins active without the process() pipeline.
+
+Details: `projects/api/node_modules/@lenne.tech/nest-server/CLAUDE.md` → "Native MongoDB Driver" and "CrudService process()".
+
 ## Rules
 
 1. **Backend tasks** → Use `generating-nest-servers` skill

@@ -4,7 +4,6 @@
   "description": "Monorepo starter kit",
   "author": "lenne.Tech <info@lenne.tech> (https://lenne.tech)",
   "license": "MIT",
-  "main": "index.js",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "c": "pnpm run check",
@@ -47,6 +46,11 @@
       "esbuild",
       "sharp",
       "puppeteer"
-    ]
+    ],
+    "overrides": {
+      "handlebars": "4.7.9",
+      "minimatch@<3.1.4": "10.2.5",
+      "yaml@>=2.0.0 <2.8.3": "2.8.3"
+    }
   }
 }
