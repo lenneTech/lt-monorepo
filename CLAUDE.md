@@ -18,6 +18,7 @@ This is a pnpm monorepo created via `lt fullstack init`. The two sub-projects ar
 ### Backend: `projects/api/`
 
 - **Framework:** NestJS + `@lenne.tech/nest-server`
+- **Framework Mode:** `{{FRAMEWORK_MODE}}` (`npm` = classic npm dependency, `vendor` = framework core copied into `src/core/`)
 - **Database:** MongoDB (Mongoose ODM)
 - **API Mode:** {{API_MODE}}
 - **Auth:** Better Auth (2FA, Passkeys, SSR sessions)
@@ -52,20 +53,41 @@ pnpm run check:fix    # Auto-fix across all sub-projects
 
 ## Framework Source Code
 
-Both frameworks ship their source code and documentation with the npm package. **ALWAYS read actual source code** before guessing framework behavior.
+Both frameworks ship their source code and documentation. **ALWAYS read
+actual source code** before guessing framework behavior.
 
 ### Backend Framework: @lenne.tech/nest-server
 
-Key files in `projects/api/node_modules/@lenne.tech/nest-server/`:
+The backend can consume the framework in one of two modes — the
+`Framework Mode` shown above tells you which this project uses:
 
-| File | Purpose |
-|------|---------|
-| `CLAUDE.md` | Framework rules, architecture overview |
-| `FRAMEWORK-API.md` | Compact API reference (interfaces, method signatures) |
-| `src/core.module.ts` | CoreModule.forRoot() — module registration |
-| `src/core/common/interfaces/server-options.interface.ts` | ALL config interfaces |
-| `src/core/common/services/crud.service.ts` | CrudService base class |
-| `docs/REQUEST-LIFECYCLE.md` | Complete request lifecycle |
+- **npm mode** — framework source is in
+  `projects/api/node_modules/@lenne.tech/nest-server/`, imports use
+  bare specifiers (`from '@lenne.tech/nest-server'`). Updated via
+  `/lt-dev:backend:update-nest-server`.
+
+- **vendor mode** — framework source is copied directly into
+  `projects/api/src/core/**` as first-class project code. No
+  `@lenne.tech/nest-server` npm dependency. Imports use relative
+  paths (`from '../../../core'`). Baseline + patch log live in
+  `projects/api/src/core/VENDOR.md`. Updated via
+  `/lt-dev:backend:update-nest-server-core`. Detect via:
+  `test -f projects/api/src/core/VENDOR.md`.
+
+Key files — **path prefix depends on mode**:
+
+- **npm mode:** `projects/api/node_modules/@lenne.tech/nest-server/<path>`
+- **vendor mode:** `projects/api/<path>` where `src/core/` replaces
+  `src/core/` in the table below (no node_modules prefix)
+
+| File                                                     | Purpose                                              |
+|----------------------------------------------------------|------------------------------------------------------|
+| `CLAUDE.md` (npm) / `src/core/VENDOR.md` (vendor)        | Framework rules / vendor baseline + patch log        |
+| `FRAMEWORK-API.md` (npm only)                            | Compact API reference                                |
+| `src/core.module.ts`                                     | CoreModule.forRoot() — module registration           |
+| `src/core/common/interfaces/server-options.interface.ts` | ALL config interfaces                                |
+| `src/core/common/services/crud.service.ts`               | CrudService base class                               |
+| `docs/REQUEST-LIFECYCLE.md` (npm only)                   | Complete request lifecycle                           |
 
 ### Frontend Framework: @lenne.tech/nuxt-extensions
 
@@ -86,14 +108,33 @@ When implementing auth middleware in `projects/app/app/middleware/`, follow the 
 `model.collection.*`, `model.db.*`, and `connection.db.collection()` bypass all Mongoose security plugins (Tenant, Audit, RoleGuard, Password).
 Use Mongoose Model methods (`insertMany`, `bulkWrite`, `updateMany`, etc.) instead.
 
-**Performance exception:** If memory issues occur under high traffic, check if `CrudService.process()` overhead is the cause. Use `Model.create(doc)` (fastest for single docs) or `Model.insertMany(docs)` (fastest for batches) instead of `CrudService.create()`. Use `findByIdAndUpdate().lean()` for updates, `findById().lean()` for read-only lookups. Defer complex logic to cron/queue in high-frequency paths.
+**CrudService vs direct Mongoose:** Use CrudService for user-facing APIs (provides authorization + field filtering). Use direct Mongoose (`Model.create()`, `findByIdAndUpdate().lean()`, `findById().lean()`) for system-internal code (processors, crons) where no user context exists. **Never** pass Mongoose SubDocument Arrays through `CrudService.update()` — use `CrudService.pushToArray()` / `pullFromArray()` instead, or `$push`/`$set` via `findByIdAndUpdate()` for combined operations (OOM risk applies in ALL contexts, including controllers). Details: `projects/api/node_modules/@lenne.tech/nest-server/CLAUDE.md`.
 
 Details: `projects/api/node_modules/@lenne.tech/nest-server/CLAUDE.md` → "Native MongoDB Driver" and "CrudService process()".
+
+## Mongoose Index Placement
+
+**Rule:** Single-field indexes live on the property. `Schema.index()` is reserved for compound (multi-field) indexes only.
+
+1. **Single-field indexes** → declare directly on the property via `@Prop({ index: true })` or `@UnifiedField({ mongoose: { index: true } })`. Keeps all property info in one place.
+
+2. **Framework-managed indexes** → do NOT set manually. `tenantId` is automatically indexed by the `mongooseTenantPlugin` in `@lenne.tech/nest-server`. Adding `index: true` on `tenantId` triggers Mongoose `"Duplicate schema index"` warnings.
+
+3. **Compound (multi-field) indexes** → the only valid use of `Schema.index({ field1: 1, field2: 1 })` after `SchemaFactory.createForClass(...)`.
+
+4. **TTL indexes** → inline on the property: `@Prop({ required: true, index: { expireAfterSeconds: 3600 } })`.
+
+5. **`unique: true`** implicitly creates an index — do not re-declare it in `Schema.index()`.
+
+**Why:** Hidden schema-level index calls are easy to miss during review. Keeping them property-local prevents duplicate definitions and Mongoose warnings.
 
 ## Rules
 
 1. **Backend tasks** → Use `generating-nest-servers` skill
 2. **Frontend tasks** → Use `developing-lt-frontend` skill
-3. **Always read framework source** from `node_modules/` before guessing
+3. **Always read framework source** before guessing — in npm mode from
+   `node_modules/@lenne.tech/nest-server/`, in vendor mode directly
+   from `projects/api/src/core/**`. Run `lt status` inside
+   `projects/api/` to confirm the current mode.
 4. **API types must be generated** (`pnpm run generate-types` in `projects/app/`) before frontend work
 5. **Backend must be running** on port 3000 for frontend development
