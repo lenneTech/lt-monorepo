@@ -1,5 +1,10 @@
 # {{PROJECT_NAME}} — lenne.Tech Fullstack Monorepo
 
+> **📖 Ecosystem Documentation**
+> - **[LT-ECOSYSTEM-GUIDE](https://github.com/lenneTech/cli/blob/main/docs/LT-ECOSYSTEM-GUIDE.md)** — Full reference for `lt` CLI + `lt-dev` Claude-Code plugin (architecture, commands, agents, skills, vendor-mode workflows)
+> - **[VENDOR-MODE-WORKFLOW](https://github.com/lenneTech/cli/blob/main/docs/VENDOR-MODE-WORKFLOW.md)** — Step-by-step: npm → vendor conversion, vendor updates, vendor → npm rollback
+> - **[CLI Command Reference](https://github.com/lenneTech/cli/blob/main/docs/commands.md)** — All `lt` commands with options
+
 ## Project Structure
 
 ```
@@ -73,6 +78,19 @@ The backend can consume the framework in one of two modes — the
   `projects/api/src/core/VENDOR.md`. Updated via
   `/lt-dev:backend:update-nest-server-core`. Detect via:
   `test -f projects/api/src/core/VENDOR.md`.
+
+  **Vendor Modification Policy:** The vendored core exists so Claude
+  Code can read framework internals — it is **not a fork**. Only edit
+  `src/core/` for changes that are **generally useful to all
+  nest-server consumers** (bugfixes, security fixes, broad
+  enhancements). Anything project-specific goes into project code via
+  inheritance, extension, or `ICoreModuleOverrides`. Generally-useful
+  changes MUST be submitted as a PR to
+  `github.com/lenneTech/nest-server` — use
+  `/lt-dev:backend:contribute-nest-server-core` to prepare it. The
+  same policy applies to `projects/app/app/core/` vs.
+  `github.com/lenneTech/nuxt-extensions`
+  (`/lt-dev:frontend:contribute-nuxt-extensions-core`).
 
 Key files — **path prefix depends on mode**:
 
