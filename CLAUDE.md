@@ -27,7 +27,7 @@ This is a pnpm monorepo created via `lt fullstack init`. The two sub-projects ar
 - **Database:** MongoDB (Mongoose ODM)
 - **API Mode:** {{API_MODE}}
 - **Auth:** Better Auth (2FA, Passkeys, SSR sessions)
-- **Port:** 3000 (default; overridable via `PORT` env, set automatically by `lt local up`)
+- **URL:** `https://api.{{PROJECT_NAME}}.localhost` (set automatically by `lt dev up`); falls back to `http://localhost:3000` for classic `pnpm start`
 
 ```bash
 cd projects/api && pnpm start       # Start backend (default port)
@@ -40,7 +40,7 @@ cd projects/api && pnpm run test:e2e  # Run API tests
 - **UI:** NuxtUI 4 + TailwindCSS 4
 - **API Client:** Generated types (`types.gen.ts`, `sdk.gen.ts`)
 - **Auth:** `useBetterAuth()` composable
-- **Port:** 3001 (default; overridable via `PORT` env, set automatically by `lt local up`)
+- **URL:** `https://{{PROJECT_NAME}}.localhost` (set automatically by `lt dev up`); falls back to `http://localhost:3001` for classic `pnpm dev`
 
 ```bash
 cd projects/app && pnpm dev           # Start frontend (default port)
@@ -58,26 +58,31 @@ pnpm run check:fix    # Auto-fix across all sub-projects
 
 ## Local Development (Parallel Projects)
 
-To run this project alongside other lt-projects on the same machine without colliding on ports 3000/3001:
+To run this project alongside other lt-projects on the same machine without colliding on `localhost:3000`/`localhost:3001` and without cross-wiring auth cookies:
 
 ```bash
-pnpm run local             # Shorthand for `lt local up`
-pnpm run local:status      # Shows what is running for THIS project
-pnpm run local:down        # Stops the detached processes
+pnpm run dev               # Shorthand for `lt dev up`
+pnpm run dev:status        # Shows what is running for THIS project
+pnpm run dev:down          # Stops the detached processes + removes Caddy block
+pnpm run dev:doctor        # Diagnose Caddy / CA / DNS / port issues
+
+# One-time setup per machine (idempotent):
+lt dev install             # Verify Caddy + create Caddyfile stub + reminder for `caddy trust`
 
 # One-time setup per project (idempotent):
-lt local init --patch      # Allocates a port slot, registers in ~/.lenneTech/ports.json
-                           # Patches legacy hardcoded ports to env-aware variants
-                           # Injects the concrete port block into this CLAUDE.md
-lt ports                   # Inspects all reserved + currently bound dev ports
+lt dev migrate             # Patches legacy hardcoded ports to env-aware variants
+                           # Registers project in ~/.lenneTech/projects.json
+                           # Injects the URL block into CLAUDE.md files
+
+lt dev status --all        # Lists every registered project + running state
 ```
 
-`lt local up` exports the env vars both starters respect:
+`lt dev up` exports the env vars both starters respect:
 
-- API: `PORT`, `BASE_URL`, `APP_URL`, `NSC__MONGOOSE__URI`
-- App: `PORT`, `NUXT_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`
+- API: `PORT`, `BASE_URL`, `APP_URL`, `NSC__MONGOOSE__URI`, `NSC__BASE_URL`, `NSC__APP_URL`, `DATABASE_URL`
+- App: `PORT`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NUXT_PUBLIC_API_PROXY=false`
 
-Without `lt local up`, both starters fall back to the default ports (3000/3001). On a single-project machine that is fine; on a multi-project machine `lt local up` prevents the "wrong API answers wrong frontend" class of bugs.
+Without `lt dev up`, both starters fall back to the classic localhost ports (3000/3001) with the vite-proxy enabled for same-origin cookies. On a single-project machine that is fine; on a multi-project machine `lt dev up` is mandatory — it prevents the "wrong API answers wrong frontend" class of bugs by serving every project under stable HTTPS URLs (`https://{{PROJECT_NAME}}.localhost`, `https://api.{{PROJECT_NAME}}.localhost`) with a per-slug cookie domain, storage-prefix and database name.
 
 ## Framework Source Code
 
@@ -178,4 +183,4 @@ Details: `projects/api/node_modules/@lenne.tech/nest-server/CLAUDE.md` → "Nati
    from `projects/api/src/core/**`. Run `lt status` inside
    `projects/api/` to confirm the current mode.
 4. **API types must be generated** (`pnpm run generate-types` in `projects/app/`) before frontend work
-5. **Backend must be running** on port 3000 for frontend development
+5. **Backend must be running** under `lt dev up` (URL: `https://api.{{PROJECT_NAME}}.localhost`) — or on `localhost:3000` for classic mode — before frontend development
