@@ -27,10 +27,10 @@ This is a pnpm monorepo created via `lt fullstack init`. The two sub-projects ar
 - **Database:** MongoDB (Mongoose ODM)
 - **API Mode:** {{API_MODE}}
 - **Auth:** Better Auth (2FA, Passkeys, SSR sessions)
-- **Port:** 3000
+- **Port:** 3000 (default; overridable via `PORT` env, set automatically by `lt local up`)
 
 ```bash
-cd projects/api && pnpm start       # Start backend
+cd projects/api && pnpm start       # Start backend (default port)
 cd projects/api && pnpm run test:e2e  # Run API tests
 ```
 
@@ -40,10 +40,10 @@ cd projects/api && pnpm run test:e2e  # Run API tests
 - **UI:** NuxtUI 4 + TailwindCSS 4
 - **API Client:** Generated types (`types.gen.ts`, `sdk.gen.ts`)
 - **Auth:** `useBetterAuth()` composable
-- **Port:** 3001
+- **Port:** 3001 (default; overridable via `PORT` env, set automatically by `lt local up`)
 
 ```bash
-cd projects/app && pnpm dev           # Start frontend
+cd projects/app && pnpm dev           # Start frontend (default port)
 cd projects/app && pnpm run generate-types  # Generate API types (API must be running)
 cd projects/app && pnpm test          # Run Playwright E2E tests
 ```
@@ -55,6 +55,29 @@ pnpm install          # Install all dependencies
 pnpm run check        # Run checks across all sub-projects
 pnpm run check:fix    # Auto-fix across all sub-projects
 ```
+
+## Local Development (Parallel Projects)
+
+To run this project alongside other lt-projects on the same machine without colliding on ports 3000/3001:
+
+```bash
+pnpm run local             # Shorthand for `lt local up`
+pnpm run local:status      # Shows what is running for THIS project
+pnpm run local:down        # Stops the detached processes
+
+# One-time setup per project (idempotent):
+lt local init --patch      # Allocates a port slot, registers in ~/.lenneTech/ports.json
+                           # Patches legacy hardcoded ports to env-aware variants
+                           # Injects the concrete port block into this CLAUDE.md
+lt ports                   # Inspects all reserved + currently bound dev ports
+```
+
+`lt local up` exports the env vars both starters respect:
+
+- API: `PORT`, `BASE_URL`, `APP_URL`, `NSC__MONGOOSE__URI`
+- App: `PORT`, `NUXT_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`
+
+Without `lt local up`, both starters fall back to the default ports (3000/3001). On a single-project machine that is fine; on a multi-project machine `lt local up` prevents the "wrong API answers wrong frontend" class of bugs.
 
 ## Framework Source Code
 

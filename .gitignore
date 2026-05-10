@@ -45,6 +45,13 @@ build/Release
 # Dependency directories
 node_modules/
 jspm_packages/
+.pnpm-store/
+
+# macOS
+.DS_Store
+
+# Nuxt node compile cache
+node-compile-cache/
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
