@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.0](https://github.com/lenneTech/lt-monorepo/compare/v2.0.8...v2.1.0) (2026-05-10)
+
+
+### Features
+
+* support multi-project local development via lt local up/down/status ([89e4221](https://github.com/lenneTech/lt-monorepo/commit/89e422189f9d1e13c3f46d8b85973a7fa0310416))
+
 ## [2.0.8](https://github.com/lenneTech/lt-monorepo/compare/v2.0.7...v2.0.8) (2026-04-17)
 
 ## [2.0.7](https://github.com/lenneTech/lt-monorepo/compare/v2.0.6...v2.0.7) (2026-04-11)
