@@ -45,7 +45,7 @@ cd projects/api && pnpm run test:e2e  # Run API tests
 ```bash
 cd projects/app && pnpm dev           # Start frontend (default port)
 cd projects/app && pnpm run generate-types  # Generate API types (API must be running)
-cd projects/app && pnpm test          # Run Playwright E2E tests
+cd projects/app && pnpm run test:e2e  # Run Playwright E2E tests
 ```
 
 ## Development
@@ -83,6 +83,16 @@ lt dev status --all        # Lists every registered project + running state
 - App: `PORT`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NUXT_PUBLIC_API_PROXY=false`
 
 Without `lt dev up`, both starters fall back to the classic localhost ports (3000/3001) with the vite-proxy enabled for same-origin cookies. On a single-project machine that is fine; on a multi-project machine `lt dev up` is mandatory — it prevents the "wrong API answers wrong frontend" class of bugs by serving every project under stable HTTPS URLs (`https://{{PROJECT_NAME}}.localhost`, `https://api.{{PROJECT_NAME}}.localhost`) with a per-slug cookie domain, storage-prefix and database name.
+
+### E2E tests (Playwright)
+
+The App E2E suite is environment-agnostic and runs unchanged in three setups:
+
+- **Classic ports** — API `:3000` + App `:3001` started manually.
+- **`lt dev up`** — HTTPS behind Caddy; the `.lt-dev/.env` bridge (auto-loaded by `playwright.config.ts`) feeds the project URLs. Run via `lt dev test`.
+- **CI** — GitLab (`.gitlab-ci.yml`) and GitHub Actions (`.github/workflows/test.yml`) boot the API on `:3000`, set `PLAYWRIGHT=true`, and run Playwright.
+
+Test code reads `NUXT_PUBLIC_API_URL` / `NUXT_PUBLIC_SITE_URL` / `API_URL` with `localhost:3000` / `:3001` fallbacks — **never hardcode ports in specs**. Auth cookies injected into the browser must preserve the `Secure` flag (HTTPS under `lt dev`) and derive their domain from the app host.
 
 ## Framework Source Code
 

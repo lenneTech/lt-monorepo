@@ -59,17 +59,36 @@ app:test:
   stage: test
   image: mcr.microsoft.com/playwright:v1.58.0-noble
   extends: .distributed
-  timeout: 20 hours 30 minutes
+  timeout: 1 hours
   only:
     - merge_requests
+  services:
+    - name: mongo:7
+      alias: mongo
+  variables:
+    # API + App run on the classic ports here (no lt dev / Caddy in CI). The
+    # App E2E tests read these env vars and fall back to localhost:3000/3001
+    # when unset, so the same suite also runs under `lt dev up` locally.
+    NSC__MONGOOSE__URI: "mongodb://mongo:27017/app-ci"
+    MONGO_URI: "mongodb://mongo:27017/app-ci"
+    API_URL: "http://localhost:3000"
+    # PLAYWRIGHT=true relaxes rate-limiting and disables the Better-Auth
+    # user-cache so freshly-promoted admin users are recognised immediately.
+    PLAYWRIGHT: "true"
   script:
-    - pnpm run app:test
-    - echo "https://$CI_PROJECT_NAMESPACE.gitlab.io/-/$CI_PROJECT_NAME/-/jobs/$CI_JOB_ID/artifacts/playwright-report/index.html"
+    # Boot the API in the background — Playwright's webServer block starts the
+    # Nuxt app on :3001, but App E2E tests also need the API on :3000.
+    - cd projects/api && pnpm run start:nodemon &
+    - cd ../..
+    - timeout 120 sh -c 'until wget -q --spider http://localhost:3000/meta; do sleep 2; done'
+    - cd projects/app && pnpm exec playwright install --with-deps chromium
+    - pnpm exec playwright test --reporter=html
   artifacts:
     when: always
     paths:
-      - playwright-report
-    expire_in: 2 days
+      - projects/app/playwright-report
+      - projects/app/test-results
+    expire_in: 1 week
 
 # ======================================================================================================================
 # Build jobs
