@@ -66,13 +66,15 @@ pnpm run dev:status        # Shows what is running for THIS project
 pnpm run dev:down          # Stops the detached processes + removes Caddy block
 pnpm run dev:doctor        # Diagnose Caddy / CA / DNS / port issues
 
-# One-time setup per machine (idempotent):
-lt dev install             # Verify Caddy + create Caddyfile stub + reminder for `caddy trust`
-
-# One-time setup per project (idempotent):
-lt dev migrate             # Patches legacy hardcoded ports to env-aware variants
+# First run in a fresh project — just this, then `lt dev up`:
+lt dev init                # Patches legacy hardcoded ports to env-aware variants
                            # Registers project in ~/.lenneTech/projects.json
                            # Injects the URL block into CLAUDE.md files
+                           # Auto-runs `lt dev install` first if the machine
+                           # isn't set up yet (idempotent, one hop, no recursion)
+
+# (install can also be run explicitly; inside a project it auto-runs init after)
+lt dev install             # Verify Caddy + create Caddyfile stub + reminder for `caddy trust`
 
 lt dev status --all        # Lists every registered project + running state
 ```
