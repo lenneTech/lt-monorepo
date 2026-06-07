@@ -4,6 +4,8 @@
 > - **[LT-ECOSYSTEM-GUIDE](https://github.com/lenneTech/cli/blob/main/docs/LT-ECOSYSTEM-GUIDE.md)** — Full reference for `lt` CLI + `lt-dev` Claude-Code plugin (architecture, commands, agents, skills, vendor-mode workflows)
 > - **[VENDOR-MODE-WORKFLOW](https://github.com/lenneTech/cli/blob/main/docs/VENDOR-MODE-WORKFLOW.md)** — Step-by-step: npm → vendor conversion, vendor updates, vendor → npm rollback
 > - **[CLI Command Reference](https://github.com/lenneTech/cli/blob/main/docs/commands.md)** — All `lt` commands with options
+>
+> **🔧 Framework Mode** — Each sub-project runs in `npm` or `vendor` mode. If `projects/api/src/core/VENDOR.md` (backend) or `projects/app/app/core/VENDOR.md` (frontend) exists, that half is **vendored**: read framework code from the `core/` tree, update it with `/lt-dev:backend:update-nest-server-core` / `/lt-dev:frontend:update-nuxt-extensions-core` (both also raise npm packages to at least the upstream baseline via `/lt-dev:maintenance:maintain`), and send generally-useful core fixes upstream with the matching `contribute-*-core` command. Run `lt fullstack update` to print the right flow for this workspace.
 
 ## Project Structure
 
