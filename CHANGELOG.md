@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.0](https://github.com/lenneTech/lt-monorepo/compare/v3.0.3...v3.1.0) (2026-06-14)
+
+
+### Features
+
+* add deployment compose + CI package stage with APP_VERSION_COMMIT for App/API build drift detection ([03ec8f9](https://github.com/lenneTech/lt-monorepo/commit/03ec8f9726371001bd2cd399d457213c124e0c93))
+
 ## [3.0.3](https://github.com/lenneTech/lt-monorepo/compare/v3.0.2...v3.0.3) (2026-06-07)
 
 ## [3.0.2](https://github.com/lenneTech/lt-monorepo/compare/v3.0.1...v3.0.2) (2026-05-24)
