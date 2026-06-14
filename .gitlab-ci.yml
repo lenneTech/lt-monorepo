@@ -4,12 +4,23 @@
 # ======================================================================================================================
 stages:
   - test
+  - package
 
 # ======================================================================================================================
 # Docker image for runner
 # See https://docs.gitlab.com/runner/
 # ======================================================================================================================
 image: node:22-alpine
+
+# ======================================================================================================================
+# Build identity / image coordinates
+# IMAGE_TAG = the CI commit SHA — baked into both images (APP_VERSION_COMMIT) so
+# App and API can be compared to detect a drifted / stale deployment (see
+# docker-compose.yml). Set IMAGE_NAME (registry image prefix) as a CI/CD variable.
+# ======================================================================================================================
+variables:
+  IMAGE_NAME: ${CI_REGISTRY_IMAGE}
+  IMAGE_TAG: ${CI_COMMIT_SHA}
 
 # ======================================================================================================================
 # Install npm packages for tasks
@@ -100,3 +111,32 @@ build:
     - merge_requests
   script:
     - pnpm run build
+
+# ======================================================================================================================
+# Package jobs — build + push the deployment images with the build commit baked in
+# ----------------------------------------------------------------------------------------------------------------------
+# Builds both images via docker-compose.yml, passing IMAGE_TAG (= CI commit SHA)
+# into the APP_VERSION_COMMIT build arg so GET /meta, /health-check and
+# /app/admin/system report the exact running build. Runs on the deploy branches.
+#
+# Requires CI/CD variables: IMAGE_NAME (or CI_REGISTRY_IMAGE) + registry login.
+# Add a deploy stage afterwards for your platform (e.g. TurboOps `turbo deploy`,
+# `docker stack deploy`, …) — that part is platform-specific and intentionally
+# left out of the template.
+# ======================================================================================================================
+package:images:
+  stage: package
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - docker compose -f docker-compose.yml build
+    - docker compose -f docker-compose.yml push api app
+  only:
+    - dev
+    - test
+    - main

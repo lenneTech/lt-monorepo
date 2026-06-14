@@ -148,3 +148,12 @@ To deploy the project and use new features, you need to follow these steps:
    > The changes automatically get deployed on the production system
 
 New deployments keep the old database. Make sure that your system might not work properly with the new features and an old db-instance
+
+### Build identity / drift detection
+
+App and API are deployed together but versioned independently. To tell at a glance which build is live — and whether the two containers match after a rollout — every deployment bakes the git commit SHA into both images via the `APP_VERSION_COMMIT` build arg (fed from the CI commit SHA, see `docker-compose.yml` + `.gitlab-ci.yml`):
+
+- The **API** reports it at `GET /meta` and in the `/health-check` build indicator.
+- The **App** shows + compares both builds under **`/app/admin/system`** and warns when the App and API commits differ (a sign of a partial / stale rollout).
+
+Version numbers are per-component and may legitimately differ; only the commit is compared. Local builds without CI report `unknown` and never trigger the warning.

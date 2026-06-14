@@ -1,0 +1,80 @@
+# =====================================================================================================================
+# Deployment compose for the fullstack monorepo (projects/api + projects/app).
+#
+# Build identity / drift detection
+# --------------------------------
+# Both images bake the build's git commit SHA via the APP_VERSION_COMMIT build
+# arg, fed from IMAGE_TAG (= the CI commit SHA, see .gitlab-ci.yml). At runtime:
+#   - API  reports it via GET /meta and the /health-check build indicator
+#   - App  freezes it into the Nuxt bundle and shows it under /app/admin/system
+# Because both bake the SAME commit but read it independently, App and API can be
+# compared to detect a mismatched / stale container after a partial rollout.
+# Locally (no CI) it defaults to "unknown", which suppresses the drift warning.
+#
+# Required env (e.g. from .gitlab-ci.yml or `.env`):
+#   IMAGE_NAME  container registry image prefix (e.g. registry.example.com/project)
+#   IMAGE_TAG   image tag = CI commit SHA (defaults to "latest"/"unknown" locally)
+# Runtime config (DB URI, secrets, …) is injected by the platform at deploy time.
+# =====================================================================================================================
+services:
+  # === DATABASE ===
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # === API (NestJS) ===
+  api:
+    build:
+      context: .
+      dockerfile: projects/api/Dockerfile
+      args:
+        # Monorepo build context: tell the Dockerfile where the API project lives.
+        API_DIR: projects/api
+        # IMAGE_TAG is the CI commit SHA (see .gitlab-ci.yml) — bake it in so the
+        # running API can report its exact build via GET /meta + /health-check.
+        APP_VERSION_COMMIT: ${IMAGE_TAG:-unknown}
+    image: ${IMAGE_NAME}/api:${IMAGE_TAG:-latest}
+    expose:
+      - "3000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health-check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # === APP (Nuxt) ===
+  app:
+    build:
+      context: .
+      dockerfile: projects/app/Dockerfile
+      args:
+        # IMAGE_TAG is the CI commit SHA (see .gitlab-ci.yml) — bake it into the
+        # Nuxt build so /app/admin/system can show + compare the App build.
+        APP_VERSION_COMMIT: ${IMAGE_TAG:-unknown}
+    image: ${IMAGE_NAME}/app:${IMAGE_TAG:-latest}
+    expose:
+      - "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

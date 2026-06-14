@@ -58,6 +58,33 @@ pnpm run check        # Run checks across all sub-projects
 pnpm run check:fix    # Auto-fix across all sub-projects
 ```
 
+## Build Identity / Drift Detection
+
+App and API are deployed together but versioned independently, so a partial /
+stale rollout (one container older than the other) is otherwise hard to spot.
+The build commit SHA makes it visible at a glance:
+
+- **API** (`@lenne.tech/nest-server` meta module) reports it via `GET /meta`
+  (`commit` field) and the `/health-check` build indicator.
+- **App** freezes it into the Nuxt bundle (`runtimeConfig.public.appCommit`) and
+  shows + compares both under **`/app/admin/system`** — a warning appears when
+  the App and API commits differ.
+
+The contract (one variable, end to end):
+
+```
+CI commit SHA → IMAGE_TAG (.gitlab-ci.yml)
+             → APP_VERSION_COMMIT build arg (docker-compose.yml)
+             → ENV in each image (Dockerfile)
+             → GET /meta + runtimeConfig.public.appCommit
+```
+
+Versions (semver) are per-component and may legitimately differ — only the
+**commit** is compared for drift. Local builds without CI report `unknown`, which
+never triggers the warning. When deploying with a different tool than the bundled
+`docker-compose.yml`, just ensure `APP_VERSION_COMMIT` is passed as a build arg
+to both images (= the CI commit SHA).
+
 ## Local Development (Parallel Projects)
 
 To run this project alongside other lt-projects on the same machine without colliding on `localhost:3000`/`localhost:3001` and without cross-wiring auth cookies:
