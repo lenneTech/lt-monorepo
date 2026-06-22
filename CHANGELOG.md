@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.3.0](https://github.com/lenneTech/lt-monorepo/compare/v3.1.0...v3.3.0) (2026-06-22)
+
+
+### Features
+
+* **check:** add quiet report-driven check wrapper with auto-fix, parallel runs, and step-level metrics ([db13493](https://github.com/lenneTech/lt-monorepo/commit/db13493d553d1ea17c8178effb05af0cc17dea9e))
+
 ## [3.1.0](https://github.com/lenneTech/lt-monorepo/compare/v3.0.3...v3.1.0) (2026-06-14)
 
 
