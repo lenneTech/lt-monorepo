@@ -4,7 +4,7 @@
   "description": "Monorepo starter kit",
   "author": "lenne.Tech <info@lenne.tech> (https://lenne.tech)",
   "license": "MIT",
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "c": "pnpm run check",
     "check": "node scripts/check.mjs",
@@ -43,20 +43,5 @@
   "devDependencies": {
     "commit-and-tag-version": "12.7.3",
     "husky": "9.1.7"
-  },
-  "//overrides": {
-    "fast-xml-parser@<5.7.0": "Security fix: moderate XML Comment/CDATA Injection (GHSA-gh4j-gqv2-49f6) in fast-xml-parser <5.7.0; also resolves high fast-xml-builder <=1.1.6 attribute-quote-bypass (GHSA-5wm8-gmm8-39j9) since fast-xml-parser >=5.7.0 requires fast-xml-builder ^1.1.7 - transitive via commit-and-tag-version"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@swc/core",
-      "bcrypt",
-      "esbuild",
-      "sharp",
-      "puppeteer"
-    ],
-    "overrides": {
-      "fast-xml-parser@<5.7.0": "5.7.3"
-    }
   }
 }

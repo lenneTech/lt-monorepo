@@ -1,2 +1,32 @@
 packages:
   - 'projects/*'
+
+# pnpm 11 reads workspace-scoped settings (overrides, build allowlists,
+# minimumReleaseAgeExclude, ignoredOptionalDependencies) from THIS file, NOT
+# from package.json's `pnpm` block (which pnpm 11 silently ignores). On
+# `lt fullstack init` the api + app templates' settings are hoisted into this
+# file (see cli/src/lib/hoist-workspace-pnpm-config.ts); the entries below are
+# the lt-monorepo's own and are merged with the hoisted ones.
+
+# Build-script approvals. `allowBuilds` is the pnpm 11 key; `onlyBuiltDependencies`
+# is kept as the pnpm 10 twin so the allowlist survives whichever key pnpm reads.
+allowBuilds:
+  '@swc/core': true
+  bcrypt: true
+  esbuild: true
+  puppeteer: true
+  sharp: true
+
+onlyBuiltDependencies:
+  - '@swc/core'
+  - bcrypt
+  - esbuild
+  - puppeteer
+  - sharp
+
+overrides:
+  # Security: moderate XML Comment/CDATA Injection (GHSA-gh4j-gqv2-49f6) in
+  # fast-xml-parser <5.7.0; also resolves the high fast-xml-builder <=1.1.6
+  # attribute-quote-bypass (GHSA-5wm8-gmm8-39j9), since fast-xml-parser >=5.7.0
+  # requires fast-xml-builder ^1.1.7 - transitive via commit-and-tag-version.
+  'fast-xml-parser@<5.7.0': 5.7.3
