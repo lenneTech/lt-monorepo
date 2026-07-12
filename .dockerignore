@@ -1,0 +1,54 @@
+# Docker resolves these patterns against the BUILD CONTEXT ROOT — this directory
+# — and never against the Dockerfile's own directory. `projects/app/.dockerignore`
+# and `projects/api/.dockerignore` are therefore NOT read when building from here
+# (see docker-compose.yml: `context: .`). This file is the only one that applies.
+#
+# For the same reason a bare `node_modules` would only match `./node_modules`;
+# every pattern that must also hit `projects/*` needs a `**/` glob. Both service
+# Dockerfiles copy their sources straight out of this context
+# (`COPY projects/app/ …`, `COPY . /tmp/src`), so what is listed below is exactly
+# what keeps a developer's local artefacts and secrets out of the images.
+
+# Dependencies — the images install their own from the lockfile
+**/node_modules
+.pnpm-store
+.npm
+
+# Build output — a stale .output/dist must never be copied into an image
+**/.output
+**/.nuxt
+**/dist
+
+# Secrets — `nuxt build` reads .env, so a local .env would silently change the
+# bundle. .env.example is documentation and stays.
+**/.env
+**/.env.local
+**/.env.*.local
+
+# VCS + editor + tooling
+.git
+**/.gitignore
+**/.husky
+**/.idea
+**/.vscode
+**/.claude
+
+# Test + report artefacts
+**/coverage
+**/test-results
+**/playwright-report
+**/*.log
+
+# Docker + CI metadata. Docker reads the Dockerfile out-of-band, so excluding it
+# from the context is safe and merely keeps it out of the image layers.
+**/Dockerfile*
+**/docker-compose*
+**/.dockerignore
+.gitlab-ci.yml
+.gitlab
+**/.github
+.turboops.json
+
+# Misc
+.DS_Store
+**/*.tgz

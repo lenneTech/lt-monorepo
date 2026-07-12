@@ -4,7 +4,8 @@
 # ======================================================================================================================
 stages:
   - test
-  - package
+  - turboops-build
+  - deploy
 
 # ======================================================================================================================
 # Docker image for runner
@@ -13,23 +14,39 @@ stages:
 image: node:22-alpine
 
 # ======================================================================================================================
-# Build identity / image coordinates
+# Build identity / image coordinates + TurboOps deployment
 # IMAGE_TAG = the CI commit SHA — baked into both images (APP_VERSION_COMMIT) so
 # App and API can be compared to detect a drifted / stale deployment (see
-# docker-compose.yml). Set IMAGE_NAME (registry image prefix) as a CI/CD variable.
+# docker-compose.yml).
+#
+# Deployment runs on TurboOps. Requires two CI/CD variables + one repo file:
+#   TURBOOPS_PROJECT  the TurboOps project slug (= registry namespace + login user)
+#   TURBOOPS_TOKEN    the TurboOps project token (mark it masked)
+#   .turboops.json    { "project": "<slug>" } in the repo root
+# Run `lt deployment create` to generate the file and print the exact setup steps.
 # ======================================================================================================================
 variables:
-  IMAGE_NAME: ${CI_REGISTRY_IMAGE}
+  IMAGE_NAME: registry.turbo-ops.de/${TURBOOPS_PROJECT}
   IMAGE_TAG: ${CI_COMMIT_SHA}
+  DOCKER_TLS_CERTDIR: ""
 
 # ======================================================================================================================
 # Install npm packages for tasks
 # Not processed directly because of the dot (.) at the beginning, but used later in tasks via `extends`
+#
+# `only` lives HERE, not on the individual jobs, so every test job shares one
+# rule. It MUST include `dev` and `main`: those branches build + roll a TurboOps
+# stage, and with a merge-request-only rule their `test` stage would be empty —
+# a direct push (hotfix, release commit) would deploy completely untested. The
+# stage order (test -> turboops-build -> deploy) then gates the deploy on green.
+# `interruptible` lets a newer pipeline cancel a superseded one.
 # ======================================================================================================================
 .distributed:
   interruptible: true
   only:
     - merge_requests
+    - dev
+    - main
   cache:
     key:
       files:
@@ -44,14 +61,22 @@ variables:
     - pnpm install --frozen-lockfile
 
 # ======================================================================================================================
+# Fail fast on a broken TurboOps setup, before a job spends minutes building.
+# The checks live in scripts/turboops-guard.sh so .gitlab-ci.yml and the GitHub
+# deploy workflow share one implementation. See that file for the reasoning.
+# ======================================================================================================================
+.turboops-guard:
+  script:
+    - sh scripts/turboops-guard.sh
+
+# ======================================================================================================================
 # Lint jobs
 # ======================================================================================================================
 lint:
   stage: test
   extends: .distributed
-  only:
-    - merge_requests
   script:
+    - pnpm run format:check
     - pnpm run lint
 
 # ======================================================================================================================
@@ -60,9 +85,16 @@ lint:
 api:test:
   stage: test
   extends: .distributed
-  only:
-    - merge_requests
-  services: [mongo]
+  services:
+    - name: mongo:7
+      alias: mongo
+  variables:
+    # Service containers are NOT reachable on 127.0.0.1 with the Docker executor.
+    # Without this the suite falls back to the local default and every beforeAll
+    # hook dies on `connect ECONNREFUSED 127.0.0.1:27017` after its timeout.
+    # An externally provided URI also opts out of the per-run database naming in
+    # projects/api/tests/global-setup.ts — exactly what a throwaway CI service wants.
+    NSC__MONGOOSE__URI: "mongodb://mongo:27017/api-ci"
   script:
     - pnpm run api:test
 
@@ -71,8 +103,6 @@ app:test:
   image: mcr.microsoft.com/playwright:v1.58.0-noble
   extends: .distributed
   timeout: 1 hours
-  only:
-    - merge_requests
   services:
     - name: mongo:7
       alias: mongo
@@ -86,14 +116,41 @@ app:test:
     # PLAYWRIGHT=true relaxes rate-limiting and disables the Better-Auth
     # user-cache so freshly-promoted admin users are recognised immediately.
     PLAYWRIGHT: "true"
+    # The Nuxt app needs these too: runtimeConfig ships an empty apiUrl and
+    # locally only .env (gitignored) fills it. Without them every page logs
+    # "[LtExtensions] No API URL configured" and auth calls resolve against the
+    # app origin instead of the API.
+    NUXT_API_URL: "http://localhost:3000"
+    NUXT_PUBLIC_API_URL: "http://localhost:3000"
+    NUXT_PUBLIC_SITE_URL: "http://localhost:3001"
+    # The API derives BetterAuth's trustedOrigins and the passkey rpId/origin
+    # from appUrl. Without it the app origin is untrusted and every
+    # origin-checked endpoint (two-factor/enable, passkey) answers
+    # 403 INVALID_ORIGIN.
+    APP_URL: "http://localhost:3001"
+    # The CI database starts empty, so the SystemSetup middleware redirects every
+    # route to /auth/setup and no page under test ever renders. Seeding the first
+    # admin on boot turns needsSetup off. Throwaway credentials for a throwaway
+    # database — never reuse them anywhere else.
+    NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL: "ci-admin@test.com"
+    NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD: "CiThrowawayAdmin123!"
+    NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME: "CI Admin"
+    # Where the API's stdout is captured. The email-verification specs read the
+    # "[EMAIL VERIFICATION] … token=…" line from this file.
+    NEST_SERVER_LOG: "/tmp/nest-server.log"
   script:
     # Boot the API in the background — Playwright's webServer block starts the
     # Nuxt app on :3001, but App E2E tests also need the API on :3000.
-    - cd projects/api && pnpm run start:nodemon &
-    - cd ../..
+    # The subshell keeps the `cd` local: `cd projects/api && … &` backgrounds the
+    # whole compound and leaves this shell in the repo root, so the follow-up
+    # `cd ../..` used to land one level above it ("No package.json found").
+    - (cd projects/api && pnpm run start:nodemon > "$NEST_SERVER_LOG" 2>&1) &
     - timeout 120 sh -c 'until wget -q --spider http://localhost:3000/meta; do sleep 2; done'
     - cd projects/app && pnpm exec playwright install --with-deps chromium
     - pnpm exec playwright test --reporter=html
+  after_script:
+    # The API log no longer streams into the trace — surface its tail on failure.
+    - tail -n 60 "$NEST_SERVER_LOG" || true
   artifacts:
     when: always
     paths:
@@ -107,36 +164,66 @@ app:test:
 build:
   stage: test
   extends: .distributed
-  only:
-    - merge_requests
   script:
     - pnpm run build
 
 # ======================================================================================================================
-# Package jobs — build + push the deployment images with the build commit baked in
+# TurboOps build + deploy — build + push the images, then roll the matching stage
 # ----------------------------------------------------------------------------------------------------------------------
-# Builds both images via docker-compose.yml, passing IMAGE_TAG (= CI commit SHA)
-# into the APP_VERSION_COMMIT build arg so GET /meta, /health-check and
-# /app/admin/system report the exact running build. Runs on the deploy branches.
+# Builds both images via docker-compose.yml (passing IMAGE_TAG = the CI commit SHA as
+# APP_VERSION_COMMIT so GET /meta, /health-check and /app/admin/system report the exact
+# running build), pushes them to the TurboOps registry, then rolls the matching TurboOps
+# stage via the TurboOps CLI: `dev` → the `dev` stage, `main` → the `production` stage.
+# Create those stages once in TurboOps (matching slugs) + set TURBOOPS_PROJECT /
+# TURBOOPS_TOKEN + commit `.turboops.json` (see `lt deployment create`).
 #
-# Requires CI/CD variables: IMAGE_NAME (or CI_REGISTRY_IMAGE) + registry login.
-# Add a deploy stage afterwards for your platform (e.g. TurboOps `turbo deploy`,
-# `docker stack deploy`, …) — that part is platform-specific and intentionally
-# left out of the template.
+# Both images read the commit at RUNTIME from a runner-stage ENV — the App maps it onto
+# runtimeConfig.public via NUXT_PUBLIC_APP_COMMIT — so no build layer depends on it and
+# both stay fully cacheable. An earlier `--no-cache app` here blamed BuildKit for baking
+# a stale commit; that was a misdiagnosis. A layer whose ARG is in scope is invalidated
+# when the arg changes, so the cache never served a stale SHA. The real cause was that
+# `pnpm --filter app` matched no package and exits 0, so `nuxt build` silently never ran
+# and the image shipped whatever `.output` the build context happened to carry.
 # ======================================================================================================================
-package:images:
-  stage: package
+turboops-build:
+  stage: turboops-build
   image: docker:24-dind
   services:
     - docker:24-dind
-  variables:
-    DOCKER_TLS_CERTDIR: ""
   before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - !reference [.turboops-guard, script]
+    - docker login -u "$TURBOOPS_PROJECT" -p "$TURBOOPS_TOKEN" registry.turbo-ops.de
   script:
-    - docker compose -f docker-compose.yml build
+    - docker compose -f docker-compose.yml build api app
     - docker compose -f docker-compose.yml push api app
   only:
     - dev
-    - test
+    - main
+
+# dev branch → `dev` stage
+# The CLI is pinned to its major: an unpinned `npm install -g` would let a
+# breaking 2.x release take down every deployment without a repo change.
+deploy-dev:
+  stage: deploy
+  image: node:22-alpine
+  before_script:
+    - !reference [.turboops-guard, script]
+    - npm install -g @turboops/cli@^1
+    - turbo config set token "$TURBOOPS_TOKEN"
+  script:
+    - turbo deploy dev --wait
+  only:
+    - dev
+
+# main branch → `production` stage
+deploy-prod:
+  stage: deploy
+  image: node:22-alpine
+  before_script:
+    - !reference [.turboops-guard, script]
+    - npm install -g @turboops/cli@^1
+    - turbo config set token "$TURBOOPS_TOKEN"
+  script:
+    - turbo deploy production --wait
+  only:
     - main

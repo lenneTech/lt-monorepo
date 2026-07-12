@@ -1,0 +1,2 @@
+- [Repo is the lt-monorepo TEMPLATE](project_template-repo-nature.md) — projects/api + projects/app empty until `lt fullstack init`; app-source phases N/A, review = CI/CD + infra only
+- [Ephemeral CI value calibration](feedback_ci-ephemeral-severity.md) — judge documented throwaway CI creds/values as Low/Info with reasoning, don't inflate

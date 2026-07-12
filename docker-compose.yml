@@ -3,11 +3,14 @@
 #
 # Build identity / drift detection
 # --------------------------------
-# Both images bake the build's git commit SHA via the APP_VERSION_COMMIT build
-# arg, fed from IMAGE_TAG (= the CI commit SHA, see .gitlab-ci.yml). At runtime:
-#   - API  reports it via GET /meta and the /health-check build indicator
-#   - App  freezes it into the Nuxt bundle and shows it under /app/admin/system
-# Because both bake the SAME commit but read it independently, App and API can be
+# Both images receive the build's git commit SHA via the APP_VERSION_COMMIT build
+# arg, fed from IMAGE_TAG (= the CI commit SHA, see .gitlab-ci.yml). Each turns it
+# into a runner-stage ENV and reads it at runtime, so the arg never enters a build
+# layer's cache key and the expensive `nuxt build` / `nest build` layers stay warm:
+#   - API  reads process.env and reports it via GET /meta + the /health-check badge
+#   - App  maps NUXT_PUBLIC_APP_COMMIT onto runtimeConfig.public, which Nitro applies
+#          on boot, and shows it under /app/admin/system
+# Because both carry the SAME commit but read it independently, App and API can be
 # compared to detect a mismatched / stale container after a partial rollout.
 # Locally (no CI) it defaults to "unknown", which suppresses the drift warning.
 #
@@ -60,8 +63,10 @@ services:
       context: .
       dockerfile: projects/app/Dockerfile
       args:
-        # IMAGE_TAG is the CI commit SHA (see .gitlab-ci.yml) — bake it into the
-        # Nuxt build so /app/admin/system can show + compare the App build.
+        # IMAGE_TAG is the CI commit SHA (see .gitlab-ci.yml). The Dockerfile turns
+        # it into ENV NUXT_PUBLIC_APP_COMMIT in the runner stage, which Nitro applies
+        # over runtimeConfig.public on boot — so /app/admin/system can show + compare
+        # the App build without the commit ever invalidating the `nuxt build` layer.
         APP_VERSION_COMMIT: ${IMAGE_TAG:-unknown}
     image: ${IMAGE_NAME}/app:${IMAGE_TAG:-latest}
     expose:

@@ -2,12 +2,15 @@
 # repos mirrored to GitHub. The App E2E job mirrors the GitLab `app:test`
 # job: it boots the API on :3000, then runs Playwright (which starts the
 # Nuxt app on :3001 via its webServer block).
+#
+# Triggers: pull requests, plus `workflow_call` so deploy.yml can run this
+# suite as its gate. There is deliberately NO `push:` trigger — on dev/main
+# deploy.yml calls this workflow, so a push trigger would run every test twice.
 name: Test
 
 on:
   pull_request:
-  push:
-    branches: [dev]
+  workflow_call:
 
 jobs:
   lint:
@@ -19,6 +22,7 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run format:check
       - run: pnpm run lint
 
   api-test:
@@ -56,20 +60,47 @@ jobs:
       # Relaxes rate-limiting + disables the Better-Auth user-cache so
       # freshly-promoted admin users are recognised immediately.
       PLAYWRIGHT: 'true'
+      # The Nuxt app needs these too: runtimeConfig ships an empty apiUrl and
+      # locally only .env (gitignored) fills it. Without them every page logs
+      # "[LtExtensions] No API URL configured" and auth calls resolve against
+      # the app origin instead of the API.
+      NUXT_API_URL: http://localhost:3000
+      NUXT_PUBLIC_API_URL: http://localhost:3000
+      NUXT_PUBLIC_SITE_URL: http://localhost:3001
+      # The API derives BetterAuth's trustedOrigins and the passkey rpId/origin
+      # from appUrl. Without it the app origin is untrusted and every
+      # origin-checked endpoint (two-factor/enable, passkey) answers
+      # 403 INVALID_ORIGIN.
+      APP_URL: http://localhost:3001
+      # The CI database starts empty, so the SystemSetup middleware redirects
+      # every route to /auth/setup and no page under test ever renders. Seeding
+      # the first admin on boot turns needsSetup off. Throwaway credentials for
+      # a throwaway database — never reuse them anywhere else.
+      NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL: ci-admin@test.com
+      NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD: CiThrowawayAdmin123!
+      NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME: CI Admin
+      # Where the API's stdout is captured. The email-verification specs read
+      # the "[EMAIL VERIFICATION] … token=…" line from this file.
+      NEST_SERVER_LOG: /tmp/nest-server.log
     steps:
       - uses: actions/checkout@v4
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - name: Boot API on :3000
         run: |
-          cd projects/api && pnpm run start:nodemon &
-          cd ../..
+          # The subshell keeps the `cd` local: `cd projects/api && … &` backgrounds
+          # the whole compound and leaves this shell in the repo root, so the
+          # follow-up `cd ../..` used to land one level above it.
+          (cd projects/api && pnpm run start:nodemon > "$NEST_SERVER_LOG" 2>&1) &
           timeout 120 sh -c 'until wget -q --spider http://localhost:3000/meta; do sleep 2; done'
       - name: Run Playwright E2E
         run: |
           cd projects/app
           pnpm exec playwright install --with-deps chromium
           pnpm exec playwright test --reporter=html
+      - name: API log (on failure)
+        if: failure()
+        run: tail -n 60 "$NEST_SERVER_LOG" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,0 +1,88 @@
+# GitHub Actions equivalent of the .gitlab-ci.yml `turboops-build` + `deploy-*`
+# jobs — for repos hosted on (or mirrored to) GitHub.
+#
+# Flow, mirroring GitLab's stage order (test -> turboops-build -> deploy):
+#   1. `test`       runs the full suite via .github/workflows/test.yml
+#   2. `build-push` builds both images and pushes them to the TurboOps registry
+#   3. `deploy`     rolls the matching TurboOps stage
+#
+# A red test therefore blocks the deploy — `needs:` is the GitHub equivalent of
+# GitLab's sequential stages. Branch -> stage: `dev` -> the `dev` stage,
+# `main` -> the `production` stage.
+#
+# Setup (once per repo), same two values as the GitLab CI/CD variables:
+#   - Repository variable `TURBOOPS_PROJECT` (the project slug; a secret of the
+#     same name also works and takes over when the variable is unset)
+#   - Repository secret   `TURBOOPS_TOKEN`
+#   - `.turboops.json` committed in the repo root
+# Run `lt deployment create` to generate the file and print the setup checklist.
+name: Deploy
+
+on:
+  push:
+    branches: [dev, main]
+
+# A newer push supersedes an in-flight deploy of the same branch, but never
+# cancels a deploy that is already rolling out.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build-push:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      # IMAGE_TAG is the commit SHA — baked into both images as
+      # APP_VERSION_COMMIT (see docker-compose.yml) and the exact tag the
+      # TurboOps stage rolls out.
+      IMAGE_TAG: ${{ github.sha }}
+      TURBOOPS_PROJECT: ${{ vars.TURBOOPS_PROJECT || secrets.TURBOOPS_PROJECT }}
+      TURBOOPS_TOKEN: ${{ secrets.TURBOOPS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify TurboOps setup
+        run: sh scripts/turboops-guard.sh
+      - name: Log in to the TurboOps registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.turbo-ops.de
+          username: ${{ env.TURBOOPS_PROJECT }}
+          password: ${{ env.TURBOOPS_TOKEN }}
+      - name: Build and push images
+        env:
+          IMAGE_NAME: registry.turbo-ops.de/${{ env.TURBOOPS_PROJECT }}
+        run: |
+          # Both images read the commit at runtime from a runner-stage ENV, so no build
+          # layer depends on it and both stay cacheable. An earlier `--no-cache app`
+          # blamed BuildKit for baking a stale commit — a misdiagnosis; an in-scope ARG
+          # always invalidates the layers that follow it. The real cause was that
+          # `pnpm --filter app` matched nothing and exits 0, so the build silently
+          # never ran and the image shipped the `.output` from the build context.
+          docker compose -f docker-compose.yml build api app
+          docker compose -f docker-compose.yml push api app
+
+  deploy:
+    needs: build-push
+    runs-on: ubuntu-latest
+    env:
+      TURBOOPS_PROJECT: ${{ vars.TURBOOPS_PROJECT || secrets.TURBOOPS_PROJECT }}
+      TURBOOPS_TOKEN: ${{ secrets.TURBOOPS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify TurboOps setup
+        run: sh scripts/turboops-guard.sh
+      # Pinned to the major: an unpinned global install would let a breaking 2.x
+      # release take down every deployment without a repo change.
+      - name: Install the TurboOps CLI
+        run: npm install -g @turboops/cli@^1
+      - name: Roll the stage
+        run: |
+          turbo config set token "$TURBOOPS_TOKEN"
+          turbo deploy ${{ github.ref_name == 'main' && 'production' || 'dev' }} --wait
