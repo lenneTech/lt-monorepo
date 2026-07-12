@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.5.0](https://github.com/lenneTech/lt-monorepo/compare/v3.4.0...v3.5.0) (2026-07-12)
+
+
+### Bug Fixes
+
+* **ci:** force compose upload on turbo deploy and use IPv4 in Docker healthchecks; add non-blocking audit job and frontend unit tests to CI ([b16e22a](https://github.com/lenneTech/lt-monorepo/commit/b16e22aaf14cea19220f10efb54753652f716540))
+
 ## [3.4.0](https://github.com/lenneTech/lt-monorepo/compare/v3.3.1...v3.4.0) (2026-07-12)
 
 
