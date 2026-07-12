@@ -66,6 +66,11 @@ services:
       context: .
       dockerfile: projects/app/Dockerfile
       args:
+        # Monorepo build context: tell the Dockerfile where the app project lives.
+        # The Dockerfile defaults APP_DIR=. for standalone (single-project) builds,
+        # so the monorepo MUST pass projects/app or the build lands in the wrong dir
+        # and the runner's `COPY .../.output` fails with "/app/.output: not found".
+        APP_DIR: projects/app
         # IMAGE_TAG is the CI commit SHA (see .gitlab-ci.yml). The Dockerfile turns
         # it into ENV NUXT_PUBLIC_APP_COMMIT in the runner stage, which Nitro applies
         # over runtimeConfig.public on boot — so /app/admin/system can show + compare
