@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.5.1](https://github.com/lenneTech/lt-monorepo/compare/v3.5.0...v3.5.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* **build:** set APP_DIR=projects/app in docker-compose to fix app image build in monorepo ([08f5c06](https://github.com/lenneTech/lt-monorepo/commit/08f5c060e8bfd03d99ce440bf6d4a71c77e0246b))
+
 ## [3.5.0](https://github.com/lenneTech/lt-monorepo/compare/v3.4.0...v3.5.0) (2026-07-12)
 
 
