@@ -83,6 +83,10 @@ jobs:
       - name: Install the TurboOps CLI
         run: npm install -g @turboops/cli@^1
       - name: Roll the stage
+        # `--compose` forces the compose upload independent of project.detectedConfig;
+        # without it a freshly created project can fall into the broken single-service
+        # fallback (registry/<slug>-<name> with a dash instead of the pushed
+        # registry/<slug>/<name> with a slash) → "not found in registry".
         run: |
           turbo config set token "$TURBOOPS_TOKEN"
-          turbo deploy ${{ github.ref_name == 'main' && 'production' || 'dev' }} --wait
+          turbo deploy ${{ github.ref_name == 'main' && 'production' || 'dev' }} --compose docker-compose.yml --wait

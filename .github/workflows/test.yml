@@ -25,6 +25,22 @@ jobs:
       - run: pnpm run format:check
       - run: pnpm run lint
 
+  # Security audit — mirrors the `audit` step of `pnpm run check`, but
+  # NON-BLOCKING here: `continue-on-error` surfaces which packages/advisories are
+  # affected without gating the deploy. Resolve findings by pinning the
+  # vulnerable transitive dep via pnpm.overrides.
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit
+
   api-test:
     runs-on: ubuntu-latest
     services:
@@ -86,6 +102,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Frontend unit tests (vitest)
+        run: cd projects/app && pnpm run test:unit
       - name: Boot API on :3000
         run: |
           # The subshell keeps the `cd` local: `cd projects/api && … &` backgrounds

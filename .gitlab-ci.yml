@@ -79,6 +79,17 @@ lint:
     - pnpm run format:check
     - pnpm run lint
 
+# Security audit — mirrors the `audit` step of `pnpm run check`, but NON-BLOCKING
+# here: `allow_failure: true` surfaces which packages/advisories are affected
+# (shown as "failed (allowed)") without gating the deploy. Resolve findings by
+# pinning the vulnerable transitive dep via pnpm.overrides.
+audit:
+  stage: test
+  extends: .distributed
+  allow_failure: true
+  script:
+    - pnpm audit
+
 # ======================================================================================================================
 # Tests jobs
 # ======================================================================================================================
@@ -139,6 +150,10 @@ app:test:
     # "[EMAIL VERIFICATION] … token=…" line from this file.
     NEST_SERVER_LOG: "/tmp/nest-server.log"
   script:
+    # Frontend unit tests (vitest) first — fast, need no running stack, fail early.
+    # Runs in a subshell so the `cd` stays local and the API-boot below still
+    # starts from the repo root.
+    - (cd projects/app && pnpm run test:unit)
     # Boot the API in the background — Playwright's webServer block starts the
     # Nuxt app on :3001, but App E2E tests also need the API on :3000.
     # The subshell keeps the `cd` local: `cd projects/api && … &` backgrounds the
@@ -211,7 +226,11 @@ deploy-dev:
     - npm install -g @turboops/cli@^1
     - turbo config set token "$TURBOOPS_TOKEN"
   script:
-    - turbo deploy dev --wait
+    # `--compose` forces the compose upload independent of project.detectedConfig;
+    # without it a freshly created project can fall into the broken single-service
+    # fallback (registry/<slug>-<name> with a dash instead of the pushed
+    # registry/<slug>/<name> with a slash) → "not found in registry".
+    - turbo deploy dev --compose docker-compose.yml --wait
   only:
     - dev
 
@@ -224,6 +243,10 @@ deploy-prod:
     - npm install -g @turboops/cli@^1
     - turbo config set token "$TURBOOPS_TOKEN"
   script:
-    - turbo deploy production --wait
+    # `--compose` forces the compose upload independent of project.detectedConfig;
+    # without it a freshly created project can fall into the broken single-service
+    # fallback (registry/<slug>-<name> with a dash instead of the pushed
+    # registry/<slug>/<name> with a slash) → "not found in registry".
+    - turbo deploy production --compose docker-compose.yml --wait
   only:
     - main

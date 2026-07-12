@@ -125,6 +125,23 @@ The App E2E suite is environment-agnostic and runs unchanged in three setups:
 
 Test code reads `NUXT_PUBLIC_API_URL` / `NUXT_PUBLIC_SITE_URL` / `API_URL` with `localhost:3000` / `:3001` fallbacks — **never hardcode ports in specs**. Auth cookies injected into the browser must preserve the `Secure` flag (HTTPS under `lt dev`) and derive their domain from the app host.
 
+### Known macOS caveats (`lt dev up`)
+
+Two open issues observed on macOS — **not fixable via template config**, tracked
+for an upstream `lt dev` / Nuxt solution:
+
+- **Long `$TMPDIR` → SSR 500.** Nuxt 4.4.7's vite-node socket path exceeds the
+  macOS 104-character `sun_path` limit because the default `$TMPDIR`
+  (`/var/folders/…/T/`) is long, so the App answers SSR 500 under `lt dev up`.
+  Workaround: run with a short `TMPDIR=/tmp`. The proper fix belongs in `lt dev`
+  (spawn the App process with a short `TMPDIR` on macOS) — a CLI concern, not a
+  template change.
+- **HMR WebSocket port collision.** The Vite HMR WS default port `24678`
+  collides when several `lt dev up` projects run in parallel; Nuxt 4.4.7 ignores
+  `vite.server.hmr.port`, so it cannot be relocated from the app config.
+  Non-fatal (SSR recompile still works) — open item for an upstream Nuxt /
+  `lt dev` fix.
+
 ## Framework Source Code
 
 Both frameworks ship their source code and documentation. **ALWAYS read

@@ -50,7 +50,10 @@ services:
       mongo:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health-check"]
+      # 127.0.0.1, NOT localhost: on Alpine `localhost` resolves to IPv6 ::1 first,
+      # but the server listens on IPv4 0.0.0.0 only → "connection refused" → the
+      # container never turns healthy even though it serves fine.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health-check"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -75,7 +78,10 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      # 127.0.0.1, NOT localhost: on Alpine `localhost` resolves to IPv6 ::1 first,
+      # but Nitro listens on IPv4 0.0.0.0 only → "connection refused" → the app
+      # container never turns healthy even though it serves / with HTTP 200.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
