@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.4.0](https://github.com/lenneTech/lt-monorepo/compare/v3.3.1...v3.4.0) (2026-07-12)
+
+
+### Features
+
+* **deploy:** replace generic package stage with TurboOps registry build + CLI deploy across GitLab and GitHub ([f21979f](https://github.com/lenneTech/lt-monorepo/commit/f21979f82cfc8402f39ee4e7718c409661c8b356))
+
 ## [3.3.1](https://github.com/lenneTech/lt-monorepo/compare/v3.3.0...v3.3.1) (2026-06-23)
 
 ## [3.3.0](https://github.com/lenneTech/lt-monorepo/compare/v3.1.0...v3.3.0) (2026-06-22)
