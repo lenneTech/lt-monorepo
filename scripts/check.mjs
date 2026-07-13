@@ -67,7 +67,7 @@ function classify(cmd) {
   if (c.includes("vendor-freshness"))
     return { fatal: false, kind: "vendor", label: "vendor-freshness" };
   if (c.includes("audit")) return { fatal: true, kind: "audit", label: "audit" };
-  if (c.includes("format:check") || c.includes("oxfmt") || c.includes("prettier"))
+  if (c.includes("format:check") || c.includes("oxfmt"))
     return { fatal: true, kind: "format", label: "format" };
   if (c.includes("lint")) return { fatal: true, kind: "lint", label: "lint" };
   if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:unit|test:ci/.test(c))
@@ -86,7 +86,6 @@ function toFixCommand(kind, cmd) {
   if (kind === "format") {
     if (/\bformat:check\b/.test(cmd)) return cmd.replace(/\bformat:check\b/, "format");
     if (/\boxfmt\b/.test(cmd)) return cmd.replace(/\s--check\b/, "");
-    if (/\bprettier\b/.test(cmd)) return cmd.replace(/\s--check\b/, " --write");
     return cmd;
   }
   if (kind === "lint") {
