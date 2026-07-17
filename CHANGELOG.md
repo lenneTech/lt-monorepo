@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file. See [commit
 ## [3.6.0](https://github.com/lenneTech/lt-monorepo/compare/v3.5.2...v3.6.0) (2026-07-17)
 
 
+### Chores
+
+* **toolchain:** replace corepack with exact packageManager pin as single source of truth for pnpm provisioning ([32b1cd1](https://github.com/lenneTech/lt-monorepo/commit/32b1cd14e0092806d6705818483ab7fc5e71c106))
+
+## [3.6.0](https://github.com/lenneTech/lt-monorepo/compare/v3.5.2...v3.6.0) (2026-07-17)
+
+
 ### Features
 
 * **check:** add `check:workspace` guard asserting the workspace root and its members agree on `packageManager` — the mismatch that broke `lt fullstack init` was invisible to every single repo's own check
