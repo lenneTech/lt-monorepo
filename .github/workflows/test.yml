@@ -19,8 +19,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: corepack enable
+          node-version: 24
+      # Provision the exact pnpm pinned in package.json (single source of truth).
+      # No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+      # npm enforces registry integrity for the tarball itself.
+      - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
       - run: pnpm run format:check
       - run: pnpm run lint
@@ -36,8 +39,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: corepack enable
+          node-version: 24
+      # Provision the exact pnpm pinned in package.json (single source of truth).
+      # No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+      # npm enforces registry integrity for the tarball itself.
+      - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit
 
@@ -54,8 +60,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: corepack enable
+          node-version: 24
+      # Provision the exact pnpm pinned in package.json (single source of truth).
+      # No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+      # npm enforces registry integrity for the tarball itself.
+      - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
       - run: pnpm run api:test
 
@@ -100,7 +109,10 @@ jobs:
       NEST_SERVER_LOG: /tmp/nest-server.log
     steps:
       - uses: actions/checkout@v4
-      - run: corepack enable
+      # Provision the exact pnpm pinned in package.json (single source of truth).
+      # No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+      # npm enforces registry integrity for the tarball itself.
+      - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
       - name: Frontend unit tests (vitest)
         run: cd projects/app && pnpm run test:unit
@@ -134,7 +146,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: corepack enable
+          node-version: 24
+      # Provision the exact pnpm pinned in package.json (single source of truth).
+      # No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+      # npm enforces registry integrity for the tarball itself.
+      - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build

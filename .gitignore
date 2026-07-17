@@ -259,3 +259,6 @@ fabric.properties
 .idea/codestream.xml
 
 # End of https://www.toptal.com/developers/gitignore/api/phpstorm,node
+
+# lt dev session state (ports, PIDs, env bridge, logs)
+.lt-dev/

@@ -4,13 +4,14 @@
   "description": "Monorepo starter kit",
   "author": "lenne.Tech <info@lenne.tech> (https://lenne.tech)",
   "license": "MIT",
-  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "c": "pnpm run check",
     "check": "node scripts/check.mjs",
-    "check:raw": "pnpm audit && pnpm -r --parallel run check",
-    "check:fix": "pnpm install && pnpm audit --fix && pnpm -r --parallel run check:fix",
-    "check:naf": "pnpm install && pnpm -r --parallel run check:naf",
+    "check:raw": "pnpm install --frozen-lockfile && pnpm audit && pnpm run check:workspace && pnpm run check:pin && pnpm -r --parallel run check",
+    "check:fix": "pnpm install && pnpm audit --fix && pnpm run check:workspace && pnpm run check:pin && pnpm -r --parallel run check:fix",
+    "check:naf": "pnpm install && pnpm run check:workspace && pnpm run check:pin && pnpm -r --parallel run check:naf",
+    "check:workspace": "node scripts/check-workspace-consistency.mjs",
+    "check:pin": "node scripts/check-packagemanager-pin.mjs",
     "cf": "pnpm run check:fix",
     "cnaf": "pnpm run check:naf",
     "init": "pnpm install && pnpm -r --parallel run init",
@@ -43,5 +44,10 @@
   "devDependencies": {
     "commit-and-tag-version": "12.7.3",
     "husky": "9.1.7"
-  }
+  },
+  "engines": {
+    "node": ">= 22",
+    "pnpm": "^11.0.0"
+  },
+  "packageManager": "pnpm@11.13.1+sha512.b2fc7683b8a6525414e7d13e1ba28caaddde96bf66ec540bfaeb7e702b81f3e0be4d1f295edf7f9fe0396740a8dce4509c582ddf79891f4543fea32d37645f25"
 }

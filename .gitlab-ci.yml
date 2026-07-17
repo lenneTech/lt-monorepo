@@ -54,9 +54,10 @@ variables:
     paths:
       - .pnpm-store/
   before_script:
-    - npm install -g corepack@latest
-    - corepack enable
-    - corepack install
+    # Provision the exact pnpm pinned in package.json (single source of truth).
+    # No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+    # npm enforces registry integrity for the tarball itself.
+    - npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
     - pnpm config set store-dir .pnpm-store
     - pnpm install --frozen-lockfile
 

@@ -1,3 +1,5 @@
+shamefullyHoist: true
+autoInstallPeers: true
 packages:
   - 'projects/*'
 
@@ -17,12 +19,6 @@ allowBuilds:
   puppeteer: true
   sharp: true
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - bcrypt
-  - esbuild
-  - puppeteer
-  - sharp
 
 overrides:
   # Security: moderate XML Comment/CDATA Injection (GHSA-gh4j-gqv2-49f6) in

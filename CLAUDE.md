@@ -136,11 +136,15 @@ for an upstream `lt dev` / Nuxt solution:
   Workaround: run with a short `TMPDIR=/tmp`. The proper fix belongs in `lt dev`
   (spawn the App process with a short `TMPDIR` on macOS) — a CLI concern, not a
   template change.
-- **HMR WebSocket port collision.** The Vite HMR WS default port `24678`
-  collides when several `lt dev up` projects run in parallel; Nuxt 4.4.7 ignores
-  `vite.server.hmr.port`, so it cannot be relocated from the app config.
-  Non-fatal (SSR recompile still works) — open item for an upstream Nuxt /
-  `lt dev` fix.
+- **HMR WebSocket port collision — largely resolved since Nuxt 4.4.8.** The
+  Vite HMR WS default port `24678` used to collide when several `lt dev up`
+  projects ran in parallel (Nuxt 4.4.7 also ignored `vite.server.hmr.port`).
+  Nuxt 4.4.8's vite-builder now picks a FREE port from the range
+  `24678–24698` via `getPort` and honors an explicitly configured
+  `vite.server.hmr.port` (`||=`), so up to ~21 parallel instances coexist
+  without config. Residual risk: two apps BOOTING at the same instant can race
+  `getPort` onto the same port (rare; restart one app). For fully deterministic
+  ports, set `vite.server.hmr.port` per instance — it is respected again.
 
 ## Framework Source Code
 
