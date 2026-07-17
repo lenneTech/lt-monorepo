@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.6.1](https://github.com/lenneTech/lt-monorepo/compare/v3.6.0...v3.6.1) (2026-07-17)
+
+
+### Chores
+
+* **deps:** drop fast-xml-parser override now that commit-and-tag-version resolves a safe version on its own ([d8e6c0d](https://github.com/lenneTech/lt-monorepo/commit/d8e6c0d76e41dec7dc518bb2df1deecc7d02f9dc))
+
 ## [3.6.0](https://github.com/lenneTech/lt-monorepo/compare/v3.5.2...v3.6.0) (2026-07-17)
 
 
