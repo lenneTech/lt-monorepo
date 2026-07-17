@@ -18,11 +18,3 @@ allowBuilds:
   esbuild: true
   puppeteer: true
   sharp: true
-
-
-overrides:
-  # Security: moderate XML Comment/CDATA Injection (GHSA-gh4j-gqv2-49f6) in
-  # fast-xml-parser <5.7.0; also resolves the high fast-xml-builder <=1.1.6
-  # attribute-quote-bypass (GHSA-5wm8-gmm8-39j9), since fast-xml-parser >=5.7.0
-  # requires fast-xml-builder ^1.1.7 - transitive via commit-and-tag-version.
-  'fast-xml-parser@<5.7.0': 5.7.3
