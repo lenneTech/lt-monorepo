@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.6.2](https://github.com/lenneTech/lt-monorepo/compare/v3.6.1...v3.6.2) (2026-07-18)
+
+
+### Chores
+
+* **deps:** bump pnpm pin to 11.14.0, refresh lockfile (audit clean, check green) ([eeef8fd](https://github.com/lenneTech/lt-monorepo/commit/eeef8fd5a1ce35c94735680d54474b4c1cfcacb9))
+
 ## [3.6.1](https://github.com/lenneTech/lt-monorepo/compare/v3.6.0...v3.6.1) (2026-07-17)
 
 
