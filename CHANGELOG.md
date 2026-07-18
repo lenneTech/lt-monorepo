@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.2](https://github.com/lenneTech/lt-monorepo/compare/v3.7.1...v3.7.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **check:** guard Dockerfiles against pnpm/corepack pin drift ([addeca4](https://github.com/lenneTech/lt-monorepo/commit/addeca4b3b5ffeefd0a77d3832856fbbaf0a2ca6))
+
 ## [3.7.1](https://github.com/lenneTech/lt-monorepo/compare/v3.7.0...v3.7.1) (2026-07-18)
 
 
