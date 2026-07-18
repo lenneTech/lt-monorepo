@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.0](https://github.com/lenneTech/lt-monorepo/compare/v3.6.2...v3.7.0) (2026-07-18)
+
+
+### Features
+
+* **check:** group the Steps report by project (monorepo/api/app) ([ad6a3ca](https://github.com/lenneTech/lt-monorepo/commit/ad6a3ca2a336dd09b501bf62784cdfd25e8e35a1))
+
+
+### Bug Fixes
+
+* **check:** run root-only chain steps when workspace members exist ([7f34e35](https://github.com/lenneTech/lt-monorepo/commit/7f34e35d451158a03d495853a426f2b7cd1f034e))
+
 ## [3.6.2](https://github.com/lenneTech/lt-monorepo/compare/v3.6.1...v3.6.2) (2026-07-18)
 
 
