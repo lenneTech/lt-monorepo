@@ -77,6 +77,10 @@ lint:
   stage: test
   extends: .distributed
   script:
+    # Fail fast on Playwright image/package drift before the expensive app:test
+    # job spins up — a bumped @playwright/test with a stale CI image otherwise
+    # reds the whole E2E suite at browser launch (see scripts/check-playwright-image.mjs).
+    - node scripts/check-playwright-image.mjs
     - pnpm run format:check
     - pnpm run lint
 
@@ -112,7 +116,7 @@ api:test:
 
 app:test:
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.0-noble
+  image: mcr.microsoft.com/playwright:v1.61.1-noble
   extends: .distributed
   timeout: 1 hours
   services:
