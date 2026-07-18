@@ -30,6 +30,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createBuildTestGate } from "./build-test-gate.mjs";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const VERBOSE = process.argv.includes("--verbose") || process.argv.includes("-v");
 const SEQUENTIAL = process.argv.includes("--sequential") || process.argv.includes("--seq");
@@ -473,20 +475,47 @@ function buildGroups(projects) {
 
 // ── per-project runner ───────────────────────────────────────────────────────
 // Runs a group's steps in order, recording results + live state. Stops early
-// when another project already failed (abort.hit).
-async function runGroup(group, states, results, abort) {
+// when another project already failed (abort.hit). The `gate` serializes
+// CPU-heavy `build` steps against the contention-sensitive `test` suites across
+// groups (DEV-2524, Ursache 2) — see build-test-gate.mjs.
+async function runGroup(group, states, results, abort, gate) {
   const rel = group.project.rel;
   const st = states.get(rel);
   const startedAt = Date.now();
   for (const step of group.steps) {
     if (abort.hit) return;
+    // A parallel `nuxt build` saturating the machine tips the API-e2e suite's
+    // Better-Auth session validation into intermittent 401/500 (documented in
+    // projects/api/vitest-e2e.config.ts). Hold the two-class gate so a `build`
+    // and a `test` never overlap across groups; same-class steps still run
+    // concurrently and every other step kind ignores the gate entirely.
+    const gated = step.kind === "test" || step.kind === "build";
+    if (gated) {
+      st.current = `${step.label} (queued)`;
+      st.stepStart = Date.now();
+      await gate.acquire(step.kind);
+      // Another group may have failed while we waited — abort before starting.
+      if (abort.hit) {
+        gate.release();
+        return;
+      }
+    }
     st.current = step.label;
     st.stepStart = Date.now();
     if (!TTY) process.stdout.write(`  ${C.dim("→")} ${shortRel(rel)} · ${step.label}\n`);
     // Watchdog only on test steps (see IDLE_TIMEOUT_MS): a test runner streams
     // output continuously, so prolonged silence == deadlocked workers. Other
     // steps buffer their output and must run unwatched.
-    const { code, out } = await capture(step.cmd, step.cwd, step.kind === "test" ? IDLE_TIMEOUT_MS : 0);
+    let code;
+    let out;
+    try {
+      ({ code, out } = await capture(step.cmd, step.cwd, step.kind === "test" ? IDLE_TIMEOUT_MS : 0));
+    } finally {
+      // Release on every exit path — normal completion, the fatal-failure return
+      // below, or an unexpected synchronous throw from capture(). A leaked slot
+      // would deadlock the opposite class under Promise.all.
+      if (gated) gate.release();
+    }
     const dur = Date.now() - st.stepStart;
     const r = { dur, kind: step.kind, label: step.label, project: rel };
     if (step.kind === "test") r.tests = parseVitest(out);
@@ -596,16 +625,20 @@ async function main() {
   const order = groups.map((g) => g.project.rel);
   const states = new Map(order.map((rel) => [rel, { current: "queued" }]));
   const abort = { failure: null, hit: false };
+  // Serializes CPU-heavy `build` steps against the contention-sensitive `test`
+  // suites across groups so a parallel `nuxt build` can never destabilize the
+  // API-e2e run (DEV-2524). Inert in --sequential mode (steps never overlap).
+  const gate = createBuildTestGate();
   const ticker = TTY ? setInterval(() => drawLive(statusLines(order, states)), 80) : null;
   if (TTY) drawLive(statusLines(order, states));
 
   if (SEQUENTIAL) {
     for (const g of groups) {
-      await runGroup(g, states, results, abort);
+      await runGroup(g, states, results, abort, gate);
       if (abort.hit) break;
     }
   } else {
-    await Promise.all(groups.map((g) => runGroup(g, states, results, abort)));
+    await Promise.all(groups.map((g) => runGroup(g, states, results, abort, gate)));
   }
 
   if (ticker) clearInterval(ticker);
