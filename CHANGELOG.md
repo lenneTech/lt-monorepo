@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.4](https://github.com/lenneTech/lt-monorepo/compare/v3.7.3...v3.7.4) (2026-07-18)
+
+
+### Bug Fixes
+
+* **check:** count node:test output so test:scripts isn't reported as "0 passed" ([5778830](https://github.com/lenneTech/lt-monorepo/commit/577883022fb29ee77e200868b349f66aa827c3dc))
+
 ## [3.7.3](https://github.com/lenneTech/lt-monorepo/compare/v3.7.2...v3.7.3) (2026-07-18)
 
 
