@@ -29,11 +29,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate: run the deploy pipeline only when TurboOps is actually configured
+  # (TURBOOPS_PROJECT via repo variable or secret, plus the TURBOOPS_TOKEN
+  # secret). This keeps the workflow inert in the lt-monorepo TEMPLATE itself —
+  # no TurboOps project exists there, so a push is just a push — while every
+  # generated project (which sets both via `lt deployment create`) still runs
+  # the full test -> build-push -> deploy pipeline. Without this the template's
+  # own pushes failed the pipeline on every commit at the TurboOps guard.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          HAS_PROJECT: ${{ vars.TURBOOPS_PROJECT != '' || secrets.TURBOOPS_PROJECT != '' }}
+          HAS_TOKEN: ${{ secrets.TURBOOPS_TOKEN != '' }}
+        run: |
+          if [ "$HAS_PROJECT" = "true" ] && [ "$HAS_TOKEN" = "true" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "TurboOps not configured (TURBOOPS_PROJECT / TURBOOPS_TOKEN unset) — skipping deploy. Expected in the lt-monorepo template."
+          fi
+
   test:
+    needs: guard
+    if: ${{ needs.guard.outputs.configured == 'true' }}
     uses: ./.github/workflows/test.yml
 
   build-push:
-    needs: test
+    needs: [guard, test]
+    if: ${{ needs.guard.outputs.configured == 'true' }}
     runs-on: ubuntu-latest
     env:
       # IMAGE_TAG is the commit SHA — baked into both images as
@@ -66,7 +93,8 @@ jobs:
           docker compose -f docker-compose.yml push api app
 
   deploy:
-    needs: build-push
+    needs: [guard, build-push]
+    if: ${{ needs.guard.outputs.configured == 'true' }}
     runs-on: ubuntu-latest
     env:
       TURBOOPS_PROJECT: ${{ vars.TURBOOPS_PROJECT || secrets.TURBOOPS_PROJECT }}

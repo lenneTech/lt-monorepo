@@ -122,9 +122,17 @@ function sumMatches(clean, re) {
 // showed "16 passed" (unit only) while its 69 e2e tests ran unseen.
 function parseVitest(out) {
   const clean = stripAnsi(out);
-  const passed = sumMatches(clean, /Tests\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
+  let passed = sumMatches(clean, /Tests\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
   const files = sumMatches(clean, /Test Files\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
-  const failed = sumMatches(clean, /Tests\s+(\d+)\s+failed/gi);
+  let failed = sumMatches(clean, /Tests\s+(\d+)\s+failed/gi);
+  // `node --test` (used by the test:scripts step) reports in node:test format
+  // ("ℹ pass N" / "ℹ fail N", or "# pass N" under the TAP reporter), not Vitest's
+  // "Tests N passed". Without this fallback parseVitest returned null for it, so
+  // the gate tests went uncounted and a green run could show "Total 0 passed".
+  if (passed == null) {
+    passed = sumMatches(clean, /(?:^|\n)[^\S\n]*[#ℹ][^\S\n]+pass[^\S\n]+(\d+)\b/gi);
+    if (failed == null) failed = sumMatches(clean, /(?:^|\n)[^\S\n]*[#ℹ][^\S\n]+fail[^\S\n]+(\d+)\b/gi);
+  }
   if (passed == null && files == null) return null;
   return {
     failed: failed ?? 0,
