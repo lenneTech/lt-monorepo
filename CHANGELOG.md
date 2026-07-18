@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.3](https://github.com/lenneTech/lt-monorepo/compare/v3.7.2...v3.7.3) (2026-07-18)
+
+
+### Bug Fixes
+
+* **check:** serialize CPU-heavy build against API-e2e suite (build⊥test gate) ([0e6a8e7](https://github.com/lenneTech/lt-monorepo/commit/0e6a8e75ffedd320f696b4bf0cb3039582ae6559))
+
 ## [3.7.2](https://github.com/lenneTech/lt-monorepo/compare/v3.7.1...v3.7.2) (2026-07-18)
 
 
