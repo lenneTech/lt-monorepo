@@ -412,12 +412,25 @@ function discoverProjects() {
       if (chain) projects.push(asProject(rel, chain));
     }
   }
+  const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  const rootChain =
+    root.scripts?.["check:raw"] ??
+    (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
   if (projects.length === 0) {
-    const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const chain =
-      root.scripts?.["check:raw"] ??
-      (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
-    if (chain) projects.push(asProject(".", chain));
+    if (rootChain) projects.push(asProject(".", rootChain));
+  } else if (rootChain) {
+    // With members present, the root's own chain must not be dropped: beyond
+    // install/audit (hoisted later) and the member fan-out (replaced by the
+    // member expansion above) it may carry root-ONLY steps — in the assembled
+    // monorepo that is `check:workspace` / `check:pin`, which exist precisely
+    // for the case where members are present. Strip the fan-out command and
+    // keep whatever remains as a root project.
+    const ownSteps = rootChain
+      .split("&&")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((c) => !/\bpnpm\s+(?:-r|--recursive)\b.*\brun\s+check\b/.test(c));
+    if (ownSteps.length) projects.unshift(asProject(".", ownSteps.join(" && ")));
   }
   if (PROJECT_FILTERS.length)
     return projects.filter((p) =>
