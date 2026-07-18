@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.1](https://github.com/lenneTech/lt-monorepo/compare/v3.7.0...v3.7.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **ci:** Playwright-Image v1.61.1 + Drift-Guard ins Template ([1d1b1c4](https://github.com/lenneTech/lt-monorepo/commit/1d1b1c422116da5c2030066bd81b6c2a02797ea7))
+
 ## [3.7.0](https://github.com/lenneTech/lt-monorepo/compare/v3.6.2...v3.7.0) (2026-07-18)
 
 
