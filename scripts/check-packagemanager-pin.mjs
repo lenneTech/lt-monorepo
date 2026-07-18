@@ -131,6 +131,71 @@ for (const rel of ciFiles) {
 }
 
 // ---------------------------------------------------------------------------
+// 3b: Dockerfiles derive pnpm from the pin too. The deploy images build the
+// production artifact (turboops-build → docker-compose → projects/*/Dockerfile);
+// a stale `corepack prepare pnpm@<old>` there installs a DIFFERENT pnpm than the
+// one that generated pnpm-lock.yaml + pnpm-workspace.yaml, so a `--frozen-lockfile`
+// install can fail (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH) or build prod with a
+// mismatched manager. This scan closes the blind spot that let that drift ship.
+// ---------------------------------------------------------------------------
+const dockerFiles = [];
+const collectDockerfiles = (dir) => {
+  try {
+    for (const f of readdirSync(join(ROOT, dir))) {
+      if (/^Dockerfile/.test(f)) dockerFiles.push(dir === "." ? f : join(dir, f));
+    }
+  } catch {
+    /* directory absent — nothing to scan */
+  }
+};
+collectDockerfiles(".");
+try {
+  for (const d of readdirSync(join(ROOT, "projects"), { withFileTypes: true })) {
+    if (d.isDirectory()) collectDockerfiles(join("projects", d.name));
+  }
+} catch {
+  /* no projects/ (single-package repo) */
+}
+
+for (const rel of dockerFiles) {
+  let text;
+  try {
+    text = readFileSync(join(ROOT, rel), "utf8");
+  } catch {
+    continue;
+  }
+  // Strip comment lines: prose about corepack (the "corepack-free" note next to
+  // the derive-line) is fine — only executable RUN occurrences are violations.
+  const code = text
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+
+  check(`${rel} does not rely on corepack`, () => {
+    assert.doesNotMatch(code, /corepack/, "Node >= 25 no longer ships corepack — derive pnpm from the pin");
+  });
+  check(`${rel} has no hardcoded pnpm@<version>`, () => {
+    assert.doesNotMatch(
+      code,
+      /pnpm@\d/,
+      "derive pnpm from package.json's packageManager pin instead of hardcoding a version",
+    );
+  });
+  // A Dockerfile that actually runs pnpm must provision it via the derive-line.
+  // The negative lookbehind skips path tokens like `/pnpm` (an `ENV PNPM_HOME=/pnpm`
+  // or a `COPY --from=build /pnpm /pnpm` store copy) so a pnpm-free runtime stage
+  // isn't wrongly forced to carry the derive-line.
+  if (/(?<!\/)\bpnpm\s/.test(code)) {
+    check(`${rel} provisions pnpm via the derive-line`, () => {
+      assert.ok(
+        text.includes(DERIVE_PATTERN),
+        `expected "${DERIVE_PATTERN}" — a Dockerfile that runs pnpm must derive it from package.json`,
+      );
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 4: functional proof — derive + provision into a throwaway prefix
 // ---------------------------------------------------------------------------
 if (process.env.CI || process.env.PIN_PROVISION_TEST) {
