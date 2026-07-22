@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.5](https://github.com/lenneTech/lt-monorepo/compare/v3.7.4...v3.7.5) (2026-07-22)
+
+
+### Bug Fixes
+
+* **deploy:** bound container memory and cap the crash loop, patch 2 high dev advisories ([324e2ca](https://github.com/lenneTech/lt-monorepo/commit/324e2ca9ac24aedf42c3b163189723399a708999))
+
 ## [3.7.4](https://github.com/lenneTech/lt-monorepo/compare/v3.7.3...v3.7.4) (2026-07-18)
 
 
