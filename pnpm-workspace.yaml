@@ -18,3 +18,25 @@ allowBuilds:
   esbuild: true
   puppeteer: true
   sharp: true
+
+# Dependency overrides (security fixes).
+#
+# Override TARGETS (right-hand side) MUST be FIXED versions — never ranges like
+# ">=X" or "^X" (pnpm would silently install a newer major). The range on the LEFT
+# selects which installed versions get replaced, so a bounded key can only ever
+# raise a vulnerable version and never cap a patched one.
+#
+# NOTE: pnpm `overrides:` apply only to the ROOT project of an install, so these
+# do NOT travel to projects generated from this template — they are hoisted into
+# the generated workspace by `lt fullstack init` instead.
+overrides:
+  # Security: brace-expansion DoS via exponential-time expansion of consecutive
+  # non-expanding {} groups (GHSA-3jxr-9vmj-r5cp, high, patched >=1.1.16).
+  # Dev only, via commit-and-tag-version>dotgitignore>minimatch>brace-expansion.
+  # Drop once dotgitignore/minimatch request a patched range themselves.
+  'brace-expansion@<1.1.16': '1.1.16'
+
+  # Security: fast-xml-parser ReDoS (GHSA-8r6m-32jq-jx6q, high, patched >=5.10.1).
+  # Dev only, via commit-and-tag-version>fast-xml-parser.
+  # Drop once commit-and-tag-version requests >=5.10.1 itself.
+  'fast-xml-parser@>=5.9.3 <5.10.1': '5.10.1'

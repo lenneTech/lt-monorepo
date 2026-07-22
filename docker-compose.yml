@@ -30,6 +30,19 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Memory limits are load-bearing, not cosmetic. Node sizes its default V8 heap from the cgroup
+    # limit (uv_get_constrained_memory) — with NO limit declared it reads the HOST's memory instead,
+    # so on a 32 GB node a container happily targets a multi-GB heap and the host OOM-killer decides
+    # who dies. Declaring a limit is what lets Node fail with its own graceful "JavaScript heap out
+    # of memory" FATAL instead of an undiagnosable SIGKILL (exit 137, no stacktrace).
+    # Do NOT pair this with a hardcoded --max-old-space-size: pinning a literal disables exactly the
+    # auto-sizing described above. Tune these numbers to your workload.
+    # `deploy.resources.limits` IS honoured by `docker compose up` (unlike deploy.replicas, which is
+    # Swarm-only).
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
     restart: unless-stopped
 
   # === API (NestJS) ===
@@ -58,7 +71,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    restart: unless-stopped
+    # See the note on `mongo` — a declared limit is what makes Node's own heap auto-sizing work.
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    # `unless-stopped` retries forever, and Docker RESETS its exponential backoff once a container
+    # stays up for 10 seconds — so a bug that throws AFTER boot (a poison message, a bad document on
+    # a request path, a scheduled job) restarts at full speed indefinitely with no backoff growth.
+    # `on-failure` with a cap turns that into a visibly stopped container instead of a silent hot
+    # loop. Note the diagnostics helper deliberately does NOT debounce in-process: after an
+    # uncaughtException the process state is unknown, so continuing is the more dangerous option —
+    # the throttling belongs here, at the orchestrator.
+    restart: on-failure:10
 
   # === APP (Nuxt) ===
   app:
@@ -90,7 +115,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    restart: unless-stopped
+    # See the note on `mongo` — a declared limit is what makes Node's own heap auto-sizing work.
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    # See the note on `api` — Docker's backoff resets after 10s of uptime, so an unbounded
+    # `unless-stopped` hides a post-boot crash loop.
+    restart: on-failure:10
 
 volumes:
   mongo_data:
