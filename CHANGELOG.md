@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.8.0](https://github.com/lenneTech/lt-monorepo/compare/v3.7.5...v3.8.0) (2026-07-30)
+
+
+### Features
+
+* **ci:** block on audit findings, build once and run E2E in two shards ([4c3471f](https://github.com/lenneTech/lt-monorepo/commit/4c3471fb8181dfc9b7534fbf0b5955734fa8e8bf))
+
 ## [3.7.5](https://github.com/lenneTech/lt-monorepo/compare/v3.7.4...v3.7.5) (2026-07-22)
 
 
