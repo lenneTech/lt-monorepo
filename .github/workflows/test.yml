@@ -1,7 +1,12 @@
 # GitHub Actions equivalent of .gitlab-ci.yml — keeps E2E + tests green on
 # repos mirrored to GitHub. The App E2E job mirrors the GitLab `app:test`
-# job: it boots the API on :3000, then runs Playwright (which starts the
-# Nuxt app on :3001 via its webServer block).
+# job: `build` compiles both projects and publishes them as an artifact, then
+# each of two shards boots the compiled API on :3000 (migrations first) and runs
+# Playwright, which serves the BUILT Nuxt app on :3001 via its webServer block.
+#
+# The two pipelines are meant to stay equivalent, and scripts/check-ci-consistency.mjs
+# asserts the parts that fail silently green (sharding wiring, the audit gate, the
+# artifact contract). When you change one, change the other.
 #
 # Triggers: pull requests, plus `workflow_call` so deploy.yml can run this
 # suite as its gate. There is deliberately NO `push:` trigger — on dev/main
@@ -25,16 +30,27 @@ jobs:
       # npm enforces registry integrity for the tarball itself.
       - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
+      # Playwright image/package drift, and the CI-file invariants that fail
+      # silently green. Same two guards as the GitLab `lint` job.
+      - run: node scripts/check-playwright-image.mjs
+      - run: node scripts/check-ci-consistency.mjs
       - run: pnpm run format:check
       - run: pnpm run lint
 
-  # Security audit — mirrors the `audit` step of `pnpm run check`, but
-  # NON-BLOCKING here: `continue-on-error` surfaces which packages/advisories are
-  # affected without gating the deploy. Resolve findings by pinning the
-  # vulnerable transitive dep via pnpm.overrides.
+  # Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING,
+  # exactly like the GitLab `audit` job.
+  #
+  # It used to be `continue-on-error: true` so an unresolvable advisory would not
+  # gate the deploy. The problem: that flag suppresses EVERY advisory, including
+  # future ones, which is the opposite of what an audit gate is for — and
+  # deploy.yml gates `build-push` on this workflow, so a brand-new critical
+  # advisory shipped to production unseen.
+  #
+  # Unresolvable advisories now belong in `auditConfig.ignoreGhsas`
+  # (pnpm-workspace.yaml), one entry each with its rationale. A red audit job
+  # therefore means a NEW advisory nobody has assessed yet.
   audit:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,8 +84,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run api:test
 
+  # Mirrors the GitLab `app:test` job — same two shards, same built server, same
+  # compiled API, same migrate-before-boot. Keep the two in lockstep: deploy.yml
+  # gates `build-push` on this workflow, so a divergence here means GitHub-hosted
+  # projects deploy on a weaker gate than GitLab ones.
+  #
+  # Two shards and not more: Playwright shards per TEST, but a
+  # `test.describe.serial` block is atomic. auth-lifecycle.spec.ts is one 9-step
+  # serial chain, so it is the floor on any split — measured 13/12 at two shards
+  # vs 7/6/11/1 at four, where the extra containers buy a single `goto('.')`.
   app-test:
     runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
     services:
@@ -79,12 +109,19 @@ jobs:
       # Classic ports in CI (no lt dev / Caddy). The App E2E tests read these
       # env vars and fall back to localhost:3000/3001 when unset, so the same
       # suite also runs under `lt dev up` locally.
-      NSC__MONGOOSE__URI: mongodb://mongo:27017/app-ci
-      MONGO_URI: mongodb://mongo:27017/app-ci
+      # Per-shard database name: each matrix job gets its own service container,
+      # so this is belt-and-braces — but it is free and rules out interference in
+      # shared collections (users, session, BetterAuth jwks) entirely.
+      NSC__MONGOOSE__URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}
+      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}
       API_URL: http://localhost:3000
       # Relaxes rate-limiting + disables the Better-Auth user-cache so
       # freshly-promoted admin users are recognised immediately.
       PLAYWRIGHT: 'true'
+      # Serve the BUILT Nuxt server from the `build` artifact instead of
+      # `nuxt dev`, which recompiled every route on first hit. Note the built
+      # server resolves appEnv to `production`, so dev-only UI is absent.
+      E2E_BUILT_SERVER: 'true'
       # The Nuxt app needs these too: runtimeConfig ships an empty apiUrl and
       # locally only .env (gitignored) fills it. Without them every page logs
       # "[LtExtensions] No API URL configured" and auth calls resolve against
@@ -114,30 +151,74 @@ jobs:
       # npm enforces registry integrity for the tarball itself.
       - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
+      - name: Restore build output
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: projects
       - name: Frontend unit tests (vitest)
+        # Only in the first shard, otherwise they would run once per shard.
+        if: matrix.shard == 1
         run: cd projects/app && pnpm run test:unit
       - name: Boot API on :3000
         run: |
+          # Wait for Mongo BEFORE starting the API — the compiled API only retries
+          # the connection a bounded number of times and then stays down.
+          timeout 120 bash -c 'until (exec 3<>/dev/tcp/mongo/27017) 2>/dev/null; do sleep 2; done'
+          # Migrations first: `start:e2e:dist` is bare node and does not run them.
+          # Without them the demo data is missing and every test built on it skips
+          # itself — a suite that quietly skips away reports green and verifies
+          # nothing.
+          (cd projects/api && pnpm run migrate:up)
           # The subshell keeps the `cd` local: `cd projects/api && … &` backgrounds
-          # the whole compound and leaves this shell in the repo root, so the
-          # follow-up `cd ../..` used to land one level above it.
-          (cd projects/api && pnpm run start:nodemon > "$NEST_SERVER_LOG" 2>&1) &
-          timeout 120 sh -c 'until wget -q --spider http://localhost:3000/meta; do sleep 2; done'
+          # the whole compound and leaves this shell in the repo root.
+          (cd projects/api && pnpm run start:e2e:dist > "$NEST_SERVER_LOG" 2>&1) &
+          API_PID=$!
+          timeout 120 sh -c "
+            until wget -q --spider http://localhost:3000/meta; do
+              kill -0 $API_PID 2>/dev/null || { echo 'API process died during boot:'; tail -n 40 \"$NEST_SERVER_LOG\"; exit 1; }
+              sleep 2
+            done"
       - name: Run Playwright E2E
-        run: |
-          cd projects/app
-          pnpm exec playwright install --with-deps chromium
-          pnpm exec playwright test --reporter=html
+        # The base image already ships the browsers for its Playwright version, so
+        # there is no `playwright install` here — it would be pure wait time.
+        run: cd projects/app && pnpm exec playwright test --shard=${{ matrix.shard }}/2 --reporter=blob
       - name: API log (on failure)
         if: failure()
         run: tail -n 60 "$NEST_SERVER_LOG" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report
+          name: blob-report-${{ matrix.shard }}
           path: |
-            projects/app/playwright-report
+            projects/app/blob-report
             projects/app/test-results
+          retention-days: 7
+
+  # Merges the shards' blob reports into ONE readable HTML report. Without this the
+  # workflow leaves a partial report per shard and no combined view.
+  app-report:
+    runs-on: ubuntu-latest
+    needs: [app-test]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: blob-report-*
+          merge-multiple: true
+          path: projects/app/blob-report
+      - run: cd projects/app && pnpm exec playwright merge-reports --reporter=html ./blob-report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: projects/app/playwright-report
           retention-days: 7
 
   build:
@@ -153,3 +234,21 @@ jobs:
       - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+      # Assert the artifact contract. `pnpm -r run build` exits 0 when no package
+      # matches, and an upload-artifact path that matches nothing is a warning, not
+      # an error. Together that means a build which produced nothing would go green
+      # and only surface as every E2E shard timing out against a missing server.
+      - run: test -f projects/api/dist/src/main.js
+      - run: test -f projects/app/.output/server/index.mjs
+      # Handed to app-test so the shards run the compiled API and the built Nuxt
+      # server instead of re-transpiling per shard. `runs-on: ubuntu-latest` is
+      # glibc, matching the playwright:*-noble container that consumes it — Nitro
+      # bundles platform-specific native binaries (@img/sharp-*) into .output, so
+      # the producer and consumer must share a libc.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            projects/api/dist
+            projects/app/.output
+          retention-days: 1

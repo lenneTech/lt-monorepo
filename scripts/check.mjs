@@ -26,7 +26,7 @@
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
 import { execSync, spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -61,20 +61,59 @@ function fmtDuration(ms) {
   return `${m}m ${Math.round(s - m * 60)}s`;
 }
 
+// ── Nuxt build-dir isolation for the check's OWN package-manager calls ───────
+// The app's `build:check` / `typecheck:*` scripts pin `NUXT_BUILD_DIR` so a
+// check never writes the `.nuxt/` a parked `nuxt dev` reads. One writer has no
+// script to pin it in: `postinstall: nuxt prepare`. It inherits the env of
+// whatever triggered the install — and this script triggers one on every run
+// (the hoisted install below). Unpinned, that install rewrites
+// `.nuxt/tsconfig.json` under a running dev server, which then type-checks
+// without the `~`/`#` aliases and dies on code that is fine.
+//
+// Pinned on the COMMAND rather than in the spawn env so `buildGroups` stays a
+// pure function a guard can assert against.
+const CHECK_BUILD_DIR = ".nuxt-check";
+// Deliberately narrow: a blanket prefix would override the dirs the package.json
+// scripts pin themselves. These are the commands that run lifecycle hooks (or,
+// for `audit`, may resolve after fixing) and so have no pin of their own.
+//
+// This MUST stay at least as wide as the install/audit branches of `classify()`
+// below, and it is exported so a guard can assert exactly that. The two predicates
+// disagreeing is a silent failure: `classify()` hoists a command (so it is no
+// longer an ordinary step) while this one declines to pin it, and the hoisted
+// command then runs `postinstall: nuxt prepare` against the dev server's `.nuxt`.
+// Concretely, the shapes that used to slip through:
+//   `pnpm run audit:ci`  → classify() matched on the bare substring "audit"
+//   `pnpm i`             → neither predicate recognised the shorthand
+export const PM_INVOCATION =
+  /\b(?:pnpm|npm|yarn|bun)\s+(?:(?:audit|ci|install|i)\b|run\s+\S*(?:audit|install)\S*)/;
+export function pinCheckBuildDir(cmd) {
+  if (!PM_INVOCATION.test(cmd) || /^NUXT_BUILD_DIR=/.test(cmd)) return cmd;
+  return `NUXT_BUILD_DIR=${CHECK_BUILD_DIR} ${cmd}`;
+}
+
 // ── step classification ────────────────────────────────────────────────────
 // Map a raw command from a `check` chain onto a stable kind + label so the
 // report stays readable regardless of the underlying tool (oxfmt/oxlint/tsc/…).
 function classify(cmd) {
   const c = cmd.toLowerCase();
-  if (c.includes("vendor-freshness"))
-    return { fatal: false, kind: "vendor", label: "vendor-freshness" };
   // Dependency install — hoisted to ONE workspace-level run (see buildGroups):
   // api and app chains both start with `pnpm install --frozen-lockfile`, and
   // running those CONCURRENTLY (parallel groups) mutates the same workspace
   // node_modules from two processes at once.
-  if (/\b(pnpm|npm|yarn|bun)\s+(install|ci)\b/.test(c))
+  //
+  // Checked BEFORE `vendor-freshness`: that branch is a plain substring test, so
+  // a command that mentions it anywhere (`pnpm install --filter vendor-freshness`)
+  // used to short-circuit past this one and land in the ordinary step list, where
+  // nothing pins NUXT_BUILD_DIR for it.
+  if (/\b(pnpm|npm|yarn|bun)\s+(install|ci|i)\b/.test(c))
     return { fatal: true, kind: "install", label: "install" };
-  if (c.includes("audit")) return { fatal: true, kind: "audit", label: "audit" };
+  // Same ordering reason, and narrowed from a bare `includes("audit")`: that
+  // matched `pnpm run audit:ci`, which pinCheckBuildDir() then declined to pin —
+  // hoisted but unpinned, the worst of both.
+  if (/\baudit\b/.test(c)) return { fatal: true, kind: "audit", label: "audit" };
+  if (c.includes("vendor-freshness"))
+    return { fatal: false, kind: "vendor", label: "vendor-freshness" };
   if (c.includes("format:check") || c.includes("oxfmt"))
     return { fatal: true, kind: "format", label: "format" };
   if (c.includes("lint")) return { fatal: true, kind: "lint", label: "lint" };
@@ -162,13 +201,23 @@ async function runAudit(auditCmd) {
   const cmd = /(^|\s)--json(\s|$)/.test(auditCmd) ? auditCmd : `${auditCmd} --json`;
   const { code, out } = await capture(cmd, ROOT);
   let counts = null;
+  let ignored = 0;
   try {
-    counts = JSON.parse(out.slice(out.indexOf("{")))?.metadata?.vulnerabilities ?? null;
+    const parsed = JSON.parse(out.slice(out.indexOf("{")));
+    counts = parsed?.metadata?.vulnerabilities ?? null;
+    // `metadata.vulnerabilities` still COUNTS advisories suppressed via
+    // auditConfig.ignoreGhsas, while `advisories` drops them. Without this the
+    // summary shows a permanent red "high 1" next to a green gate, and — worse —
+    // a genuinely new advisory renders identically to the assessed one. Only the
+    // difference between the two tells them apart.
+    const listed = Object.keys(parsed?.advisories ?? {}).length;
+    const counted = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
+    ignored = Math.max(0, counted - listed);
   } catch {
     /* fall through to raw reason */
   }
   const total = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
-  return { auditCmd, blocking: code !== 0, counts, reason: counts ? null : out, total };
+  return { auditCmd, blocking: code !== 0, counts, ignored, reason: counts ? null : out, total };
 }
 
 // Watchdog: kill a TEST step whose child produces NO output for this long. A
@@ -452,7 +501,7 @@ function discoverProjects() {
 // One group per project: its ordered, fix-mapped steps. The audit step is
 // hoisted to a single workspace-level run; its EXACT command (scope + level +
 // package manager) is captured so the run mirrors the chain's own audit.
-function buildGroups(projects) {
+export function buildGroups(projects) {
   let auditCmd = null;
   let installCmd = null;
   const groups = projects.map((project) => {
@@ -463,7 +512,7 @@ function buildGroups(projects) {
       .filter(Boolean)) {
       const meta = classify(raw);
       if (meta.kind === "audit") {
-        if (!auditCmd) auditCmd = raw;
+        if (!auditCmd) auditCmd = pinCheckBuildDir(raw);
         continue;
       }
       if (meta.kind === "install") {
@@ -471,10 +520,23 @@ function buildGroups(projects) {
         // fan-out. In a pnpm workspace every member's install resolves the
         // whole workspace anyway, and two parallel installs race on the same
         // node_modules.
-        if (!installCmd) installCmd = raw;
+        if (!installCmd) installCmd = pinCheckBuildDir(raw);
         continue;
       }
-      steps.push({ ...meta, cmd: toFixCommand(meta.kind, raw), cwd: project.dir });
+      // Pinned here TOO, not only on the two hoists. classify() is supposed to
+      // route every install and audit into a hoist, which would make this
+      // redundant — but "supposed to" is what broke before: its `vendor-freshness`
+      // branch ran ahead of the install branch, so a command mentioning it landed
+      // here unpinned. Both layers are idempotent (pinCheckBuildDir never
+      // double-prefixes and never overrides an explicit pin), so defending the
+      // step list costs nothing and removes a whole class of silent regression.
+      // The app runner that `lt fullstack init` clones into projects/app does the
+      // same for the same reason.
+      steps.push({
+        ...meta,
+        cmd: pinCheckBuildDir(toFixCommand(meta.kind, raw)),
+        cwd: project.dir,
+      });
     }
     return { project, steps };
   });
@@ -608,18 +670,18 @@ async function main() {
     if (audit.blocking) {
       liveCount = 0; // the failure line must survive — nothing may overwrite it
       const summary = audit.counts
-        ? `${audit.total} vuln (${renderVulnLine(audit.counts)})`
+        ? `${audit.total} vuln (${renderVulnLine(audit.counts, audit.ignored)})`
         : "failed";
       console.log(`${C.red("✗")} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
       return fail(
         `audit (${auditCmd})`,
-        audit.counts ? renderVulnLine(audit.counts) : audit.reason,
+        audit.counts ? renderVulnLine(audit.counts, audit.ignored) : audit.reason,
         started,
       );
     }
     if (!TTY) {
       process.stdout.write(
-        `  ${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+        `  ${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts, audit.ignored) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
       );
     }
     // TTY success: NO permanent line — the live status view overwrites the audit
@@ -659,13 +721,21 @@ async function main() {
 }
 
 // ── rendering helpers ─────────────────────────────────────────────────────────
-function renderVulnLine(counts) {
-  return SEVERITIES.map((s) => {
+// `ignored` = advisories suppressed via auditConfig.ignoreGhsas. They are still in
+// `metadata.vulnerabilities`, so without accounting for them the line reads as an
+// unresolved finding forever. When everything counted is ignored, the numbers are
+// dimmed and the suffix says so — an assessed advisory must not look like a new one.
+function renderVulnLine(counts, ignored = 0) {
+  const total = SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0);
+  const allIgnored = ignored > 0 && ignored >= total;
+  const line = SEVERITIES.map((s) => {
     const n = counts[s] || 0;
     const txt = `${s} ${n}`;
-    if (n > 0 && (s === "critical" || s === "high")) return C.red(txt);
-    return n > 0 ? C.yellow(txt) : C.dim(txt);
+    if (n === 0 || allIgnored) return C.dim(txt);
+    if (s === "critical" || s === "high") return C.red(txt);
+    return C.yellow(txt);
   }).join(C.dim(" · "));
+  return ignored > 0 ? `${line}${C.dim(` (${ignored} ignored)`)}` : line;
 }
 
 function metricSuffix(r) {
@@ -738,7 +808,7 @@ function report(started, results) {
     `\n${C.bold("Vulnerabilities")} ${C.dim(audit ? `(${audit.auditCmd})` : "(no audit step)")}`,
   );
   console.log(
-    `  ${audit?.counts ? renderVulnLine(audit.counts) : C.dim(audit ? "counts unavailable" : "—")}`,
+    `  ${audit?.counts ? renderVulnLine(audit.counts, audit.ignored) : C.dim(audit ? "counts unavailable" : "—")}`,
   );
 
   console.log(`\n${C.bold("Tests")}`);
@@ -764,7 +834,41 @@ function report(started, results) {
   console.log(`\n${C.green("All checks passed.")}\n`);
 }
 
-main().catch((err) => {
-  console.error(C.red(`\ncheck.mjs crashed: ${err?.stack || err}`));
-  process.exit(1);
-});
+// Run only when invoked as the CLI (`node scripts/check.mjs`). Importing this
+// module — scripts/nuxt-builddir-isolation.test.mjs does, to assert the pure
+// helpers — must never kick off a full check run.
+//
+// Split into a pure DECISION and its side effect on purpose. With the
+// `process.exit(1)` inlined, the fail-closed branch was unreachable from a test
+// (it would take the test process down with it), so nothing caught a regression
+// that turned it into a silent `return false` — which is exactly the "green gate
+// that never ran" this guard exists to prevent.
+export function resolveCliEntry(entry = process.argv[1], self = fileURLToPath(import.meta.url)) {
+  if (!entry) return { isEntry: false };
+  try {
+    return { isEntry: realpathSync(entry) === realpathSync(self) };
+  } catch (err) {
+    // "Cannot tell" is NOT "not the entry" — the caller must fail closed.
+    return { isEntry: false, unresolvable: err };
+  }
+}
+
+function isCliEntry() {
+  const { isEntry, unresolvable } = resolveCliEntry();
+  if (unresolvable) {
+    // Fail CLOSED. Treating this as "not the CLI" would make `node
+    // scripts/check.mjs` print nothing and exit 0 — a green gate that never ran.
+    process.stderr.write(
+      `[check] cannot resolve the CLI entry (${unresolvable?.code || unresolvable}) — refusing to report success\n`,
+    );
+    process.exit(1);
+  }
+  return isEntry;
+}
+
+if (isCliEntry()) {
+  main().catch((err) => {
+    console.error(C.red(`\ncheck.mjs crashed: ${err?.stack || err}`));
+    process.exit(1);
+  });
+}

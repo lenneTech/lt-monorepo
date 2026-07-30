@@ -77,21 +77,40 @@ lint:
   stage: test
   extends: .distributed
   script:
-    # Fail fast on Playwright image/package drift before the expensive app:test
-    # job spins up — a bumped @playwright/test with a stale CI image otherwise
-    # reds the whole E2E suite at browser launch (see scripts/check-playwright-image.mjs).
+    # Playwright image/package drift — a bumped @playwright/test against a stale CI
+    # image reds the whole E2E suite at browser launch. `app:test` lists this job in
+    # its `needs:`, so a red lint really does keep the expensive shards from starting
+    # (it did NOT before that dependency existed — same stage means parallel, not
+    # ordered). See scripts/check-playwright-image.mjs.
     - node scripts/check-playwright-image.mjs
+    # Guards the CI file itself: sharding wiring, the audit gate, the artifact
+    # contract. All of those fail SILENTLY GREEN when broken (see the script).
+    - node scripts/check-ci-consistency.mjs
     - pnpm run format:check
     - pnpm run lint
 
-# Security audit — mirrors the `audit` step of `pnpm run check`, but NON-BLOCKING
-# here: `allow_failure: true` surfaces which packages/advisories are affected
-# (shown as "failed (allowed)") without gating the deploy. Resolve findings by
-# pinning the vulnerable transitive dep via pnpm.overrides.
+# Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING.
+#
+# It used to be `allow_failure: true` so an unresolvable advisory would not gate the
+# deploy. The problem: that flag suppresses EVERY advisory, including future ones,
+# which is the opposite of what an audit gate is for — a genuinely new finding was
+# invisible in an MR.
+#
+# Unresolvable advisories now belong in `auditConfig.ignoreGhsas`
+# (pnpm-workspace.yaml), one entry each with its rationale. So a red audit job means
+# a NEW advisory that nobody has assessed yet — which is exactly when it should
+# block. Resolve findings by pinning the vulnerable transitive dep via `overrides`;
+# only add an ignore when the pin provably cannot work.
+#
+# Scope note: this is a bare `pnpm audit`, so it covers devDependencies too and it
+# matches the local `pnpm run check` exactly — a green check therefore means a green
+# CI audit, with no threshold gap between them. The cost is that a newly PUBLISHED
+# dev-only advisory can red an unrelated hotfix pipeline without any repo change.
+# That is the intended trade: assess it and write the entry, rather than narrowing
+# the gate to `--prod` and re-introducing a blind spot.
 audit:
   stage: test
   extends: .distributed
-  allow_failure: true
   script:
     - pnpm audit
 
@@ -114,24 +133,109 @@ api:test:
   script:
     - pnpm run api:test
 
+# The Playwright suite, split across two containers.
+#
+# It used to run as ONE job and took a multiple of its local time in CI — right up
+# to the hour limit, without ever printing a summary. Three causes, all fixed here:
+#
+#  1. `nuxt dev` recompiled every route on first hit, once per device project.
+#     It now serves the BUILT server from the `build` artifact
+#     (`E2E_BUILT_SERVER=true`, see playwright.config.ts).
+#  2. The API started via ts-node. It now runs the compiled `dist`.
+#  3. Everything ran serially. `parallel:` gives each shard its OWN container
+#     with its own API and its own Mongo.
+#
+# Why TWO shards and not more: Playwright shards at test level, but an
+# `outerMostSequentialSuite` (`test.describe.serial`) is atomic and cannot be
+# split. `auth-lifecycle.spec.ts` is one 9-step serial chain, which is the floor
+# on any split. Measured with `playwright test --list --shard=N/M`:
+#   parallel: 2 → 13 / 12     parallel: 4 → 7 / 6 / 11 / 1
+# The critical path is the shard holding the serial chain either way, so 4 shards
+# buy the runtime of a single `goto('.')` and cost two extra containers (full
+# install, artifact download, Mongo, migrations, API boot). Raising this number
+# only pays off after that chain is broken into independent groups.
+#
+# INVARIANT that sharding now depends on: with `fullyParallel: true`, Playwright
+# splits at the level of the individual TEST. Only `test.describe.serial` keeps a
+# group together. A spec that shares state across a plain `describe` will therefore
+# have its steps scattered across shards — and it will not fail loudly, it will hit
+# its own `test.skip(!someState, …)` guards and report GREEN. Any new stateful spec
+# must use `describe.serial`.
+#
+# Note this is parallelism across PROCESSES, not workers. `workers: 1` stays in
+# playwright.config.ts — it guards against virtual-WebAuthn-authenticator
+# conflicts between test files.
 app:test:
   stage: test
+  # Version-pinned, NOT digest-pinned — deliberately, unlike the production images
+  # in the starters' Dockerfiles. A digest here would have to be bumped in lockstep
+  # with the tag by hand, and scripts/check-playwright-image.mjs only verifies the
+  # VERSION, so a stale digest would drift silently behind a correct-looking tag.
+  # An unguarded pin is worse than a guarded tag: the guard is what actually keeps
+  # the image and @playwright/test from diverging, which is the failure that breaks
+  # the suite now that `playwright install` is gone.
   image: mcr.microsoft.com/playwright:v1.61.1-noble
-  extends: .distributed
   timeout: 1 hours
+  # NOTE: deliberately NOT `extends: .distributed` for the cache — the rules and
+  # before_script are inherited, the cache is overridden below.
+  extends: .distributed
+  # Same-stage DAG. `build` runs first and its artifact fans out to every shard;
+  # `lint` and `audit` are listed so a red one of those keeps the expensive shards
+  # from ever starting. Without them, `needs:` would let this job run to completion
+  # in parallel with a failing audit and burn the full E2E budget for nothing.
+  # Both finish well before `build`, so this costs no wall-clock. All three run on
+  # merge requests too, so the dependency resolves in every pipeline.
+  needs:
+    - job: build
+      artifacts: true
+    - job: lint
+      artifacts: false
+    - job: audit
+      artifacts: false
+  parallel: 2
+  # Per-job cache, but still keyed by the lockfile so it invalidates when
+  # dependencies change. A constant key (e.g. just the job slug) never expires and
+  # the store then grows monotonically, because nothing ever prunes it.
+  # `policy: pull` because `build` is a `needs:` predecessor and has already
+  # populated the store — the shards only read it, which also removes the
+  # last-writer-wins upload race between them.
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+      prefix: "$CI_JOB_NAME_SLUG"
+    paths:
+      - .pnpm-store/
+    policy: pull
   services:
     - name: mongo:7
       alias: mongo
   variables:
-    # API + App run on the classic ports here (no lt dev / Caddy in CI). The
-    # App E2E tests read these env vars and fall back to localhost:3000/3001
-    # when unset, so the same suite also runs under `lt dev up` locally.
-    NSC__MONGOOSE__URI: "mongodb://mongo:27017/app-ci"
-    MONGO_URI: "mongodb://mongo:27017/app-ci"
+    # A per-build network, so each job gets proper DNS aliases for its services
+    # instead of the deprecated `--link` mode. Note the side effect: with this on,
+    # services are NOT reachable on `localhost` — which is fine here, because Mongo
+    # is addressed as `mongo:27017` and the API runs inside the job container
+    # itself, so `localhost:3000` still refers to the API.
+    FF_NETWORK_PER_BUILD: "true"
+    # API + App run on the classic ports here (no lt dev / Caddy in CI). The App
+    # E2E tests read these env vars and fall back to localhost:3000/3001 when
+    # unset, so the same suite also runs under `lt dev up` locally.
+    # The database name carries $CI_NODE_INDEX: each shard gets its own service
+    # container, so this is belt-and-braces — but it is free, and it means a
+    # runner that ever hands two shards the same Mongo still cannot let them
+    # interfere in shared collections (users, session, BetterAuth jwks).
+    NSC__MONGOOSE__URI: "mongodb://mongo:27017/app-ci-$CI_NODE_INDEX"
+    MONGO_URI: "mongodb://mongo:27017/app-ci-$CI_NODE_INDEX"
     API_URL: "http://localhost:3000"
     # PLAYWRIGHT=true relaxes rate-limiting and disables the Better-Auth
     # user-cache so freshly-promoted admin users are recognised immediately.
     PLAYWRIGHT: "true"
+    # The built Nuxt server instead of `nuxt dev` — see this job's header.
+    # Side effect worth knowing: the built server resolves `appEnv` to
+    # `production`, so dev-only UI (docs layer, dev widgets) is absent under test.
+    # That is better deploy parity, but it IS a behaviour change for any spec that
+    # asserted on dev-only chrome.
+    E2E_BUILT_SERVER: "true"
     # The Nuxt app needs these too: runtimeConfig ships an empty apiUrl and
     # locally only .env (gitignored) fills it. Without them every page logs
     # "[LtExtensions] No API URL configured" and auth calls resolve against the
@@ -152,40 +256,112 @@ app:test:
     NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD: "CiThrowawayAdmin123!"
     NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME: "CI Admin"
     # Where the API's stdout is captured. The email-verification specs read the
-    # "[EMAIL VERIFICATION] … token=…" line from this file.
+    # "[EMAIL VERIFICATION] … token=…" line from this file. Each shard is its own
+    # container with its own /tmp, so the path cannot collide across shards.
     NEST_SERVER_LOG: "/tmp/nest-server.log"
   script:
     # Frontend unit tests (vitest) first — fast, need no running stack, fail early.
-    # Runs in a subshell so the `cd` stays local and the API-boot below still
-    # starts from the repo root.
-    - (cd projects/app && pnpm run test:unit)
-    # Boot the API in the background — Playwright's webServer block starts the
-    # Nuxt app on :3001, but App E2E tests also need the API on :3000.
-    # The subshell keeps the `cd` local: `cd projects/api && … &` backgrounds the
-    # whole compound and leaves this shell in the repo root, so the follow-up
-    # `cd ../..` used to land one level above it ("No package.json found").
-    - (cd projects/api && pnpm run start:nodemon > "$NEST_SERVER_LOG" 2>&1) &
-    - timeout 120 sh -c 'until wget -q --spider http://localhost:3000/meta; do sleep 2; done'
-    - cd projects/app && pnpm exec playwright install --with-deps chromium
-    - pnpm exec playwright test --reporter=html
+    # Only in the first shard, otherwise they would run once per shard.
+    # `${CI_NODE_INDEX:-1}` on purpose: GitLab only defines that variable for a
+    # `parallel:` job, so a bare "$CI_NODE_INDEX" would silently evaluate to
+    # `[ "" = "1" ]` → false the day someone drops `parallel:` — and the unit tests
+    # would never run again, with a green pipeline. scripts/check-ci-consistency.mjs
+    # also guards that pairing.
+    - if [ "${CI_NODE_INDEX:-1}" = "1" ]; then (cd projects/app && pnpm run test:unit); fi
+    # Wait for Mongo BEFORE starting the API. The compiled API only retries the
+    # connection a bounded number of times and then stays down — a slow-starting
+    # service would otherwise kill the shard before a single test ran.
+    - timeout 120 bash -c 'until (exec 3<>/dev/tcp/mongo/27017) 2>/dev/null; do sleep 2; done'
+    # Migrations BEFORE the start: `start:e2e:dist` is bare node and does not run
+    # them. Without them the demo data is missing and every test built on it skips
+    # itself — a suite that quietly skips away reports green and verifies nothing.
+    - (cd projects/api && pnpm run migrate:up)
+    # The COMPILED API in the background. The subshell keeps the `cd` local.
+    # `$!` is captured so the readiness loop can tell "still booting" from "already
+    # dead" — without it a crashed API is only noticed when the 120s timeout
+    # expires, and it reports as a timeout rather than as the crash it was.
+    - (cd projects/api && pnpm run start:e2e:dist > "$NEST_SERVER_LOG" 2>&1) &
+    - API_PID=$!
+    - |
+      timeout 120 sh -c '
+        until wget -q --spider http://localhost:3000/meta; do
+          kill -0 '"$API_PID"' 2>/dev/null || { echo "API process died during boot:"; tail -n 40 "'"$NEST_SERVER_LOG"'"; exit 1; }
+          sleep 2
+        done'
+    # The base image already ships the browsers for its Playwright version; a
+    # `playwright install` would be pure wait time. The blob reporter is what lets
+    # the shard reports be merged into ONE readable report afterwards (see
+    # app:report) — four disconnected HTML reports were part of the original
+    # "never emitted a summary" complaint.
+    - cd projects/app && pnpm exec playwright test --shard=$CI_NODE_INDEX/$CI_NODE_TOTAL --reporter=blob
   after_script:
     # The API log no longer streams into the trace — surface its tail on failure.
     - tail -n 60 "$NEST_SERVER_LOG" || true
   artifacts:
     when: always
     paths:
-      - projects/app/playwright-report
+      - projects/app/blob-report
       - projects/app/test-results
+    expire_in: 1 week
+
+# Merges the shards' blob reports into a single HTML report. Without this the
+# pipeline produces one partial report per shard and no combined view — which is
+# most of what "ran to the hour limit without ever printing a summary" meant in
+# practice.
+app:report:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.61.1-noble
+  extends: .distributed
+  when: always
+  needs:
+    - job: app:test
+      artifacts: true
+  script:
+    - cd projects/app && pnpm exec playwright merge-reports --reporter=html ./blob-report
+  artifacts:
+    when: always
+    paths:
+      - projects/app/playwright-report
     expire_in: 1 week
 
 # ======================================================================================================================
 # Build jobs
 # ======================================================================================================================
+# Builds BOTH projects and hands the results to `app:test`.
+#
+# Without artifacts every E2E shard would have to re-transpile the API via ts-node
+# and let Nuxt compile each page on first hit. That dominated the runtime: the Vite
+# cold start was the lion's share, and it would be paid once per shard. Build once,
+# use in every shard.
 build:
   stage: test
   extends: .distributed
+  # glibc, NOT the pipeline default `node:22-alpine`. Nitro bundles PLATFORM-SPECIFIC
+  # native binaries into `.output/server/node_modules` (`@img/sharp-*`,
+  # `@img/sharp-libvips-*`). Built on musl they resolve to `sharp-linuxmusl-x64`,
+  # while the consumer of this artifact — `app:test` on playwright:*-noble — is
+  # glibc and looks for `sharp-linux-x64`, which is not in the bundle. Because `ipx`
+  # imports sharp lazily, the server still boots and only dies on the first
+  # `/_ipx/**` request, with an error that reads like a dependency bug. Any future
+  # statically-imported native dep would turn it into a hard boot failure instead.
+  image: node:22-bookworm-slim
   script:
     - pnpm run build
+    # Assert the artifact contract. `pnpm -r run build` exits 0 when no package
+    # matches (the exact trap documented on the turboops-build job below), and
+    # GitLab treats an `artifacts:paths` entry that matches no files as a WARNING,
+    # not an error. Both together mean a build that produced nothing would go green,
+    # and the failure would only surface as all E2E shards timing out against a
+    # missing server — pointing at Playwright rather than at this job.
+    - test -f projects/api/dist/src/main.js
+    - test -f projects/app/.output/server/index.mjs
+  artifacts:
+    # Kept short: the artifacts are only consumed by `app:test` inside the same
+    # pipeline, and are worthless afterwards.
+    expire_in: 1 day
+    paths:
+      - projects/api/dist
+      - projects/app/.output
 
 # ======================================================================================================================
 # TurboOps build + deploy — build + push the images, then roll the matching stage
@@ -207,18 +383,24 @@ build:
 # ======================================================================================================================
 turboops-build:
   stage: turboops-build
-  image: docker:24-dind
+  image: docker:28-dind
   services:
-    - docker:24-dind
+    - docker:28-dind
+  # Download NOTHING from earlier stages. Without this GitLab's default hands this
+  # job the `build` artifacts (projects/api/dist + projects/app/.output) and every
+  # shard's test-results — straight into the workspace where `docker compose build`
+  # runs with `context: .`. That re-arms the exact stale-image failure described in
+  # the header above, leaving `.dockerignore` as the only thing between a leftover
+  # `.output` and the shipped image. This job builds from source and needs none of it.
+  dependencies: []
   before_script:
     - !reference [.turboops-guard, script]
     - docker login -u "$TURBOOPS_PROJECT" -p "$TURBOOPS_TOKEN" registry.turbo-ops.de
   script:
     - docker compose -f docker-compose.yml build api app
     - docker compose -f docker-compose.yml push api app
-  only:
-    - dev
-    - main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "main"'
 
 # dev branch → `dev` stage
 # The CLI is pinned to its major: an unpinned `npm install -g` would let a
@@ -226,6 +408,9 @@ turboops-build:
 deploy-dev:
   stage: deploy
   image: node:22-alpine
+  # Nothing from earlier stages — this job reads only docker-compose.yml and
+  # .turboops.json out of the repo. See the note on turboops-build.
+  dependencies: []
   before_script:
     - !reference [.turboops-guard, script]
     - npm install -g @turboops/cli@^1
@@ -236,13 +421,15 @@ deploy-dev:
     # fallback (registry/<slug>-<name> with a dash instead of the pushed
     # registry/<slug>/<name> with a slash) → "not found in registry".
     - turbo deploy dev --compose docker-compose.yml --wait
-  only:
-    - dev
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
 
 # main branch → `production` stage
 deploy-prod:
   stage: deploy
   image: node:22-alpine
+  # Nothing from earlier stages — see the note on turboops-build.
+  dependencies: []
   before_script:
     - !reference [.turboops-guard, script]
     - npm install -g @turboops/cli@^1
@@ -253,5 +440,12 @@ deploy-prod:
     # fallback (registry/<slug>-<name> with a dash instead of the pushed
     # registry/<slug>/<name> with a slash) → "not found in registry".
     - turbo deploy production --compose docker-compose.yml --wait
-  only:
-    - main
+  # `rules:` rather than `only:` specifically so production can require a PROTECTED
+  # ref, which `only:` cannot express — a branch NAME is not an authorisation.
+  # Without it, anyone able to create a branch called `main` in a fork-and-push
+  # workflow reaches the production deploy. Protect `main` in the project settings
+  # for this to bite; if it is not protected yet, this rule fails closed (no
+  # deploy) rather than open, which is the correct direction.
+  # `dev` can be tightened the same way once that branch is protected too.
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true"'

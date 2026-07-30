@@ -121,7 +121,11 @@ The App E2E suite is environment-agnostic and runs unchanged in three setups:
 
 - **Classic ports** — API `:3000` + App `:3001` started manually.
 - **`lt dev up`** — HTTPS behind Caddy; the `.lt-dev/.env` bridge (auto-loaded by `playwright.config.ts`) feeds the project URLs. Run via `lt dev test`.
-- **CI** — GitLab (`.gitlab-ci.yml`) and GitHub Actions (`.github/workflows/test.yml`) boot the API on `:3000`, set `PLAYWRIGHT=true`, and run Playwright.
+- **CI** — GitLab (`.gitlab-ci.yml`) and GitHub Actions (`.github/workflows/test.yml`) both: build once (`build` job → `projects/api/dist` + `projects/app/.output` as an artifact), then run **two shards** that boot the **compiled** API (`start:e2e:dist`, migrations first) on `:3000`, set `PLAYWRIGHT=true` and `E2E_BUILT_SERVER=true`, and let Playwright serve the **built** Nuxt server on `:3001`. The shard reports are merged into one HTML report by a follow-up job.
+
+  Two shards, not more: Playwright splits per test, but a `test.describe.serial` block is atomic — `auth-lifecycle.spec.ts` is one 9-step serial chain and therefore the floor on any split. **Any new stateful spec must use `describe.serial`**, otherwise its steps scatter across shards and the dependent ones skip themselves and report green.
+
+  `scripts/check-ci-consistency.mjs` (part of `pnpm run check`) guards the wiring that would otherwise fail silently green — sharding without `--shard`, a non-blocking audit job, a missing build-artifact dependency, `start:e2e:dist` without `migrate:up`.
 
 Test code reads `NUXT_PUBLIC_API_URL` / `NUXT_PUBLIC_SITE_URL` / `API_URL` with `localhost:3000` / `:3001` fallbacks — **never hardcode ports in specs**. Auth cookies injected into the browser must preserve the `Secure` flag (HTTPS under `lt dev`) and derive their domain from the app host.
 

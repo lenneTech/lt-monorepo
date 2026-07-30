@@ -11,33 +11,87 @@
 
 # Dependencies — the images install their own from the lockfile
 **/node_modules
-.pnpm-store
-.npm
+**/.pnpm-store
+**/.npm
 
-# Build output — a stale .output/dist must never be copied into an image
+# `.npmrc` is a token file by convention. The ROOT one has to stay: both deps
+# stages do `COPY . /tmp/src` and then `cp -f /tmp/src/.npmrc /app/`, so excluding
+# it would silently drop any registry auth the install needs. (The `cp` is
+# `|| true`, so a missing file does not break the build — it just installs
+# unauthenticated, which fails later and less legibly.) The nested copies are read
+# by nothing: both installs run from /app.
+# Written as an explicit path rather than `**/.npmrc` + `!.npmrc`, because a
+# negation would also have to reason about re-inclusion under an excluded
+# directory — more subtlety than one entry is worth.
+projects/*/.npmrc
+
+# Build output — a stale .output/dist must never be copied into an image.
+# LOAD-BEARING, not hygiene: the CI `build` job publishes projects/app/.output as
+# an artifact, and GitLab hands artifacts to later-stage jobs by default. These
+# lines are what keeps a leftover build out of the image (see the stale-`.output`
+# incident recorded in .gitlab-ci.yml's turboops-build header). `dependencies: []`
+# on the deploy jobs is the second layer; do not remove either without the other.
 **/.output
 **/.nuxt
+# The check chain's isolated Nuxt build dir (`NUXT_BUILD_DIR=.nuxt-check`), the
+# `lt dev test` build dir, and its Nitro OUTPUT dir (`NITRO_OUTPUT_DIR=.output-test`,
+# a separate axis — `**/.output` does not match it). All local-only and rewritten
+# on every run. Mirrors projects/app/.gitignore, which Docker never reads from here.
+**/.nuxt-check
+**/.nuxt-test
+**/.output-test
+# Catch-all beneath the named entries. `NUXT_BUILD_DIR` / `NITRO_OUTPUT_DIR` make
+# `.nuxt-<x>` / `.output-<x>` trivial to spawn, so enumerating names is structurally
+# incomplete — a manual `.nuxt-perf` / `.output-perf` profiling run in projects/app was
+# the first one nobody had an entry for. It reached the BUILDER stage through this
+# file, and `COPY projects/app/` sits directly above the expensive `nuxt build` layer,
+# so a stray local build dir busts the image cache. The named entries stay: they carry
+# the reason each dir exists.
+**/.nuxt-*
+**/.output-*
+**/.nitro
+**/.cache
 **/dist
 
 # Secrets — `nuxt build` reads .env, so a local .env would silently change the
-# bundle. .env.example is documentation and stays.
-**/.env
-**/.env.local
-**/.env.*.local
+# bundle. `.env*` covers the whole family rather than enumerating shapes.
+# `.env.example` goes with it: no build step reads it.
+**/.env*
 
 # VCS + editor + tooling
-.git
+**/.git
 **/.gitignore
 **/.husky
 **/.idea
 **/.vscode
 **/.claude
+**/*.swp
+**/*.swo
 
-# Test + report artefacts
+# Runtime state — written while the stack runs locally, never needed by a build.
+# `.lt-dev` is `lt dev`'s directory (detached server logs + scratch state); the
+# API logs every request it serves into it.
+**/.lt-dev
+# The TUS staging dir, i.e. real user documents. ANCHORED on purpose: a bare
+# `**/uploads` matches any directory of that name at any depth, which would also
+# swallow application source — a Nuxt route `app/pages/uploads/` or a component
+# folder would silently vanish from the build context and the page would just not
+# exist in the image. (`app/components/Upload/` already exists — a near miss.)
+projects/api/uploads
+
+# Test + report artefacts. A Playwright trace records the full request log of the
+# failing test, session cookie included. Most of these are gitignored inside
+# projects/app, so they never show up in `git status` to remind anyone they are
+# there — note that at the MONOREPO ROOT only `coverage` and `*.log` are, so a
+# stray root-level report directory is visible in git but still excluded here.
 **/coverage
 **/test-results
 **/playwright-report
+**/blob-report
 **/*.log
+# Rotated logs too: `**/*.log` only matches a segment ENDING in `.log`, so
+# `.lt-dev/api.log.1` sails straight past it.
+**/*.log.*
 
 # Docker + CI metadata. Docker reads the Dockerfile out-of-band, so excluding it
 # from the context is safe and merely keeps it out of the image layers.
