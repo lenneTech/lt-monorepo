@@ -85,9 +85,17 @@ jobs:
       - run: pnpm run api:test
 
   # Mirrors the GitLab `app:test` job — same two shards, same built server, same
-  # compiled API, same migrate-before-boot. Keep the two in lockstep: deploy.yml
-  # gates `build-push` on this workflow, so a divergence here means GitHub-hosted
-  # projects deploy on a weaker gate than GitLab ones.
+  # compiled API, same migrate-before-boot, same mongo watchdog. Keep the two in
+  # lockstep: deploy.yml gates `build-push` on this workflow, so a divergence here
+  # means GitHub-hosted projects deploy on a weaker gate than GitLab ones.
+  #
+  # ONE difference is deliberate and not drift: `FF_NETWORK_PER_BUILD`, which
+  # scripts/check-ci-consistency.mjs requires of every GitLab job with a mongo
+  # service, has no counterpart here and needs none. That flag moves a GitLab
+  # service off the shared default bridge onto a per-build network; GitHub gives
+  # every job its own ephemeral runner and its own service containers, torn down
+  # with the job, so there is no shared bridge to move off. The guard rule is
+  # GitLab-only for that reason — not because nobody got round to it.
   #
   # Two shards and not more: Playwright shards per TEST, but a
   # `test.describe.serial` block is atomic. auth-lifecycle.spec.ts is one 9-step
@@ -182,7 +190,19 @@ jobs:
       - name: Run Playwright E2E
         # The base image already ships the browsers for its Playwright version, so
         # there is no `playwright install` here — it would be pure wait time.
-        run: cd projects/app && pnpm exec playwright test --shard=${{ matrix.shard }}/2 --reporter=blob
+        #
+        # Wrapped in the same mongo watchdog as the GitLab `app:test` job. If the
+        # service container goes away mid-run, every later DB call waits out
+        # MongoDB's 30 s server-selection timeout and the shard burns its budget
+        # while the log reads like failing sign-up tests. Keeping this in lockstep
+        # matters specifically here: deploy.yml gates `build-push` on THIS
+        # workflow, so a diagnostic that exists only on the GitLab side would
+        # leave GitHub-hosted projects on the weaker gate.
+        run: |
+          cd projects/app
+          WATCHDOG_API_URL="$API_URL/meta" \
+            "$GITHUB_WORKSPACE/scripts/mongo-watchdog.sh" mongo 27017 -- \
+            pnpm exec playwright test --shard=${{ matrix.shard }}/2 --reporter=blob
       - name: API log (on failure)
         if: failure()
         run: tail -n 60 "$NEST_SERVER_LOG" || true

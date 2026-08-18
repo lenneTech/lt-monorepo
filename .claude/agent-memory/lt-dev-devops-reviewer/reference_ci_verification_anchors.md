@@ -32,3 +32,21 @@ re-check, because upstream can change these.
 **How to apply:** consult before re-auditing the E2E sharding, the CI database wiring, or the audit
 gate — these four were each verified from source, not from the (assertive) inline comments.
 See [[project-template-and-deploy-stack]] for repo scoping.
+
+- **`wait "$PID"` AFTER a `kill -0` poll loop still returns the child's real exit
+  code** — bash (and dash) keep a terminated background job's status in the job
+  table until `wait` consumes it, so the "process already reaped → wait returns 1"
+  worry is unfounded. Verified end-to-end in `mcr.microsoft.com/playwright:vX-noble`
+  (bash 5.2.21) under `set -eo pipefail`: fake run exiting 7 → job exit 7; exiting
+  0 → job exit 0. Re-verify by re-running that 3-case docker simulation if the
+  app:test mongo watchdog is ever refactored.
+
+- **`iproute2` is NOT installed in `mcr.microsoft.com/playwright:*-noble`** — `ip`
+  is missing; `getent`, `hostname -I`, `wget`, `sed`, `timeout` are present.
+  `/bin/sh` is dash, `/bin/bash` is 5.2 with `/dev/tcp` net-redirections enabled.
+  Any CI forensics block relying on `ip addr` / `ip route` silently prints nothing.
+
+- **GitLab Runner already TCP-probes a service's first exposed port before the
+  build starts** (`HEALTHCHECK_TCP_TIMEOUT`, default 30s), so `mongo:7` is up
+  before `script:` runs. Explicit `until /dev/tcp/mongo/27017` waits are
+  belt-and-braces, not the primary gate.

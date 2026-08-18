@@ -126,8 +126,23 @@ Fix it first: raise the vulnerable transitive dependency via `overrides:` in
 its deploy on the GitHub one. Both build once and run the E2E suite in two shards
 against the built server. `scripts/check-ci-consistency.mjs` (part of `check`)
 asserts the wiring that would otherwise fail *silently green*: sharding without
-`--shard`, a non-blocking audit job, a missing build-artifact dependency, or
-`start:e2e:dist` without `migrate:up` before it.
+`--shard`, a `$CI_NODE_INDEX`-gated step in a non-parallel job, a non-blocking
+audit job, a missing build-artifact dependency, or `start:e2e:dist` without
+`migrate:up` before it. It asserts one further rule that fails *loudly but names
+the wrong culprit*: every GitLab job declaring a `mongo` service must set
+`FF_NETWORK_PER_BUILD: "true"`. Without it the runner leaves the service on the
+shared default bridge in the deprecated `--link` mode — an unauthenticated
+`mongo:7` is then reachable from every container on that host, and a lost alias
+surfaces as `getaddrinfo ENOTFOUND mongo` behind MongoDB's 30 s server-selection
+timeout, once per call. The rule is GitLab-only by design: GitHub gives every job
+its own ephemeral runner and its own service containers.
+
+For the residual case — a service that dies *during* a run — both `app:test` jobs
+wrap Playwright in `scripts/mongo-watchdog.sh`. It polls the service alongside the
+run and aborts with an explicit infrastructure diagnosis instead of letting every
+remaining test wait out its timeout. Its contract (a failing run keeps its own
+exit code; a vanished service aborts fast) is pinned by
+`scripts/mongo-watchdog.test.mjs`.
 
 ## 🧰 Tech-Stack
 

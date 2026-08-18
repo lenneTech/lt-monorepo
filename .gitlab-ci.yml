@@ -120,17 +120,45 @@ audit:
 api:test:
   stage: test
   extends: .distributed
+  # This job has no ceiling of its own otherwise: vitest.config.ts sets no `bail`
+  # and no global run limit, and `globalSetup`/`globalTeardown` are NOT covered by
+  # `hookTimeout` — so a hung setup runs until the instance-wide job timeout
+  # (typically 1 h). ~40 specs at a 30 s timeout is well under 30 min in the worst
+  # honest case, which makes anything past it a hang rather than a slow suite.
+  timeout: 30 minutes
   services:
     - name: mongo:7
       alias: mongo
   variables:
-    # Service containers are NOT reachable on 127.0.0.1 with the Docker executor.
-    # Without this the suite falls back to the local default and every beforeAll
-    # hook dies on `connect ECONNREFUSED 127.0.0.1:27017` after its timeout.
+    # A per-build network with proper DNS aliases for the services, as in app:test.
+    # Without it the runner leaves the service on the shared DEFAULT BRIDGE in the
+    # deprecated `--link` mode. Two consequences, and the security one is the
+    # stronger argument: `mongo:7` runs without authentication, so on the default
+    # bridge every other container on that host can read and write this database —
+    # and link-based alias resolution is the fragile path whose failure produces
+    # `getaddrinfo ENOTFOUND mongo`, each occurrence preceded by MongoDB's 30 s
+    # server-selection timeout.
+    # (Service CONTAINERS are per job either way — the runner never shares those.
+    # What the flag changes is the network they sit on.)
+    # Caveat worth knowing when adopting this in a project: the flag is a REQUEST.
+    # It only applies on the Docker executor, and a `network_mode` in the runner's
+    # config.toml overrides it. scripts/check-ci-consistency.mjs enforces the
+    # pairing with a mongo service; it cannot verify the runner honours it.
+    FF_NETWORK_PER_BUILD: "true"
+    # Side effect of the flag above: services are NOT reachable on 127.0.0.1 any
+    # more, they are addressed by their alias. Without this URI the suite falls
+    # back to the local default and every beforeAll hook dies on
+    # `connect ECONNREFUSED 127.0.0.1:27017` after its timeout.
     # An externally provided URI also opts out of the per-run database naming in
     # projects/api/tests/global-setup.ts — exactly what a throwaway CI service wants.
     NSC__MONGOOSE__URI: "mongodb://mongo:27017/api-ci"
   script:
+    # Wait for Mongo before the suite, mirroring app:test. tests/global-setup.ts
+    # connects immediately with the driver's 30 s server-selection default, so a
+    # slow-starting service would surface as an opaque setup timeout. The runner's
+    # own service health check usually covers this — belt and braces, and it keeps
+    # the two test jobs symmetrical.
+    - timeout 120 bash -c 'until (exec 3<>/dev/tcp/mongo/27017) 2>/dev/null; do sleep 2; done'
     - pnpm run api:test
 
 # The Playwright suite, split across two containers.
@@ -293,10 +321,43 @@ app:test:
     # the shard reports be merged into ONE readable report afterwards (see
     # app:report) — four disconnected HTML reports were part of the original
     # "never emitted a summary" complaint.
-    - cd projects/app && pnpm exec playwright test --shard=$CI_NODE_INDEX/$CI_NODE_TOTAL --reporter=blob
+    # Watchdog around the run. If the mongo SERVICE CONTAINER disappears mid-job,
+    # every later DB call waits out MongoDB's 30 s server-selection timeout. With
+    # Playwright's own `retries: 2` that is ~95 s per test, so a single
+    # infrastructure fault burns ~19 min per shard while verifying nothing — and
+    # the log reads like failing sign-up tests, with the real cause thousands of
+    # lines up. The watchdog polls the service alongside the run and aborts with a
+    # message that NAMES it.
+    #
+    # Note what already caps this and what does not: playwright.config.ts sets
+    # `globalTimeout: 40 min`, deliberately below this job's `timeout: 1 hours`,
+    # so the ceiling is 40 min per shard rather than the job timeout — and the
+    # blob report still gets written. The watchdog's value is therefore mostly
+    # DIAGNOSTIC (~36 min of runner time per incident, and far more engineer time):
+    # nothing else in the stack can tell "the mongo container died" apart from
+    # "the auth tests are broken".
+    #
+    # The logic lives in scripts/mongo-watchdog.sh rather than inline here because
+    # it only ever executes during an infrastructure fault — inline, its first real
+    # run would be the day someone is already debugging a red pipeline. As a file
+    # it is covered by scripts/mongo-watchdog.test.mjs, which asserts both
+    # directions of the contract: a failing run keeps its own exit code (a
+    # watchdog that swallowed failures would be worse than none), and a vanished
+    # service aborts fast instead of hanging.
+    - |
+      cd projects/app
+      WATCHDOG_API_URL="$API_URL/meta" \
+        "$CI_PROJECT_DIR/scripts/mongo-watchdog.sh" mongo 27017 -- \
+        pnpm exec playwright test --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL" --reporter=blob
   after_script:
     # The API log no longer streams into the trace — surface its tail on failure.
-    - tail -n 60 "$NEST_SERVER_LOG" || true
+    # GitLab has no `if: failure()` for after_script: it runs on EVERY outcome, so
+    # without the status check this tail lands in green jobs too. That matters
+    # downstream more than here — this log carries the
+    # "[EMAIL VERIFICATION] … token=…" lines the specs parse (see NEST_SERVER_LOG
+    # above), and a project whose API is chattier at boot would print that into
+    # every job trace. The GitHub twin already gates on `if: failure()`.
+    - if [ "$CI_JOB_STATUS" != "success" ]; then tail -n 60 "$NEST_SERVER_LOG" || true; fi
   artifacts:
     when: always
     paths:

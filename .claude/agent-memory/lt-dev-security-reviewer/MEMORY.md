@@ -1,3 +1,4 @@
 - [Repo is the lt-monorepo TEMPLATE](project_template-repo-nature.md) — projects/api + projects/app empty until `lt fullstack init`; app-source phases N/A, review = CI/CD + infra only
 - [Ephemeral CI value calibration](feedback_ci-ephemeral-severity.md) — judge documented throwaway CI creds/values as Low/Info with reasoning, don't inflate
 - [Verify justification comments](feedback_verify-justification-comments.md) — audit-ignore/override/"guarded by X" claims here have been factually wrong; check tarballs + CI files, not prose
+- [Verify CI guard regexes](feedback_verify-ci-guard-regexes.md) — check-ci-consistency rules are textual YAML regexes; test each against valid alternative spellings before trusting it
