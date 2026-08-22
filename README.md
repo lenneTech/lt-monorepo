@@ -69,15 +69,36 @@ pnpm run start
 
 You need to set up the following environment variables in the `.env` file:
 
-| Variable         | Description                                                        | Default (.env.example)  |
-| ---------------- | ------------------------------------------------------------------ | ----------------------- |
-| `SITE_URL`       | Defines the base URL of the frontend application.                  | `http://127.0.0.1:3001` |
-| `NODE_ENV`       | Specifies the environment in which the application is running.     | `development`           |
-| `API_URL`        | Defines the base URL of the backend API.                           | `http://127.0.0.1:3000` |
-| `WEB_PUSH_KEY`   | The public key used for Web Push notifications.                    | (empty)                 |
-| `API_SCHEMA`     | The path to the GraphQL schema file.                               | `../api/schema.gql`     |
-| `STORAGE_PREFIX` | Defines the prefix used for local storage or cache keys.           | `fc-dev`                |
-| `GENERATE_TYPES` | Determines whether or not types should be automatically generated. | `0`                     |
+Note the `NUXT_` / `NUXT_PUBLIC_` prefixes on the app variables. Nitro maps only
+prefixed variables onto `runtimeConfig`, so an unprefixed `SITE_URL` reaches nothing.
+
+| Variable                     | Description                                                        | Default (.env.example)  |
+| ---------------------------- | ------------------------------------------------------------------ | ----------------------- |
+| `NUXT_PUBLIC_SITE_URL`       | Public origin of the frontend application. **Required in production** — see below. | `http://localhost:3001` |
+| `NODE_ENV`                   | Specifies the environment in which the application is running.     | `development`           |
+| `NUXT_API_URL`               | Base URL of the backend API, server-side (SSR + dev proxy target). | `http://localhost:3000` |
+| `NUXT_PUBLIC_API_URL`        | Base URL of the backend API, client-side.                          | `http://localhost:3000` |
+| `NUXT_PUBLIC_APP_ENV`        | Deployment environment label (`local`, `development`, `production`). | `local`                 |
+| `NUXT_PUBLIC_WEB_PUSH_KEY`   | The public key used for Web Push notifications.                    | (empty)                 |
+| `NUXT_PUBLIC_STORAGE_PREFIX` | Prefix used for local storage keys (namespaces parallel projects). | `fc-dev`                |
+| `API_SCHEMA`                 | The path to the GraphQL schema file.                               | `../api/schema.gql`     |
+| `GENERATE_TYPES`             | Determines whether or not types should be automatically generated. | `0`                     |
+
+**`NUXT_PUBLIC_SITE_URL` must be set on every deployed stage.** It is the public origin
+of the app itself and feeds two consumers: the SEO site config (canonical URLs, OG
+tags, sitemap) and — since the 2.18.0 starter — `runtimeConfig.public.siteUrl`, which
+builds the absolute redirect URLs that go into password-reset and e-mail-verification
+mails.
+
+Left unset in production, the SEO half falls back to the request's `X-Forwarded-Host`
+and the auth half falls back to whichever origin the browser is on. That is correct for
+a single-origin deployment and wrong behind a proxy or vanity domain, where users then
+receive reset links pointing at the internal host — a failure that only surfaces in
+their inbox. Use the `NUXT_PUBLIC_` form, not `NUXT_SITE_URL`: both reach the SEO
+config, but only the public form also populates the auth redirect origin.
+
+These reach the containers as **runtime** environment (TurboOps stage variables /
+Swarm), not as build args — one image serves every stage.
 
 ## ✅ Checks & CI
 
