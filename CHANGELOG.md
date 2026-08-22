@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.1](https://github.com/lenneTech/lt-monorepo/compare/v3.9.0...v3.9.1) (2026-08-22)
+
+### Documentation
+
+* correct the app env var names and document the production requirement ([e8cb4ed](https://github.com/lenneTech/lt-monorepo/commit/e8cb4ed49743ecb098ea685ae566ed72d86f2d42))
 ## [3.9.0](https://github.com/lenneTech/lt-monorepo/compare/v3.8.0...v3.9.0) (2026-08-18)
 
 
