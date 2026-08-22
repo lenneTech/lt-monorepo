@@ -1,21 +1,59 @@
 ---
 name: Security overrides for commit-and-tag-version transitive deps
-description: pnpm.overrides for commit-and-tag-version transitive vulnerabilities; only fast-xml-parser override remains active as of 2026-05-10
+description: The single remaining pnpm override (brace-expansion 1.x) and why the fast-xml-parser one was removed as a downgrade lock; verified 2026-08-22
 type: project
 ---
 
-Active `pnpm.overrides` as of 2026-05-10:
-- `fast-xml-parser@<5.7.0: 5.7.3` — fixes moderate XML Comment/CDATA Injection (GHSA-gh4j-gqv2-49f6); also resolves high `fast-xml-builder` <=1.1.6 attribute-quote-bypass (GHSA-5wm8-gmm8-39j9) since `fast-xml-parser` >=5.7.0 requires `fast-xml-builder` ^1.1.7
+Overrides live in **`pnpm-workspace.yaml` → `overrides:`**, not `package.json`
+(pnpm 11 ignores the `pnpm` block there). Same for `auditConfig`,
+`minimumReleaseAgeExclude` and `allowBuilds`.
 
-Removed overrides (2026-05-10) — no longer needed because natural transitive resolution now picks patched versions:
-- `handlebars: 4.7.9` — `conventional-changelog-writer` requires `^4.7.7`, latest 4.x is `4.7.9` anyway
-- `minimatch@<3.1.4: 10.2.5` — `dotgitignore` requires `^3.0.4`, natural resolution picks `3.1.5` (>= patched `3.1.4`)
-- `yaml@>=2.0.0 <2.8.3: 2.8.3` — `commit-and-tag-version@12.7.3` requires `^2.6.0`, natural resolution picks `2.8.4` (>= patched `2.8.3`)
+## Active as of 2026-08-22
 
-**Why fast-xml-parser still needs an override:** `commit-and-tag-version@12.7.3` only requires `fast-xml-parser ^5.5.6`, and pnpm picks `5.5.10` by default — still in the vulnerable `<5.7.0` range. Override forces `5.7.3` (latest 5.x, no major jump).
+- `'brace-expansion@<1.1.18': '1.1.18'` — GHSA-3jxr-9vmj-r5cp + GHSA-mh99-v99m-4gvg,
+  via `commit-and-tag-version > dotgitignore > minimatch@3 > brace-expansion`.
+  **Currently inert** (a resolve without it also lands on 1.1.18) and kept only
+  because 1.1.18 IS the newest 1.x, so the pin costs nothing. **It must be raised
+  the day 1.1.19 ships**, or it becomes a cap.
 
-**How to apply:** When `commit-and-tag-version` releases a version requiring `fast-xml-parser ^5.7.0` or later, this override can also be removed. Re-verify by removing the override, running `pnpm install` then `pnpm audit`.
+`auditConfig.ignoreGhsas` is now **empty**. The GHSA-mh99-v99m-4gvg suppression
+was deleted 2026-08-22: GitHub narrowed the advisory from a blanket `<= 5.0.7` to
+per-major windows (1.x is now `< 1.1.17`), so the installed 1.1.18 no longer
+matches and the entry's own removal condition was met.
 
-Remaining deprecated transitive deps (not fixable via overrides — internal to commit-and-tag-version, no security issue):
-- `git-raw-commits@3.0.0` — used internally, latest is 5.0.1
-- `git-semver-tags@5.0.1` — used internally, latest is 8.0.1
+## The mechanism that makes these entries go bad
+
+**A pnpm override key is matched against the REQUESTED RANGE, not the resolved
+version.** So even a bounded key pins rather than floors, and it silently becomes a
+downgrade lock as soon as its target falls behind the newest release in that major.
+
+Proven empirically here: with `commit-and-tag-version` requesting
+`fast-xml-parser: ^5.5.6` (natural resolve 5.11.0), adding the probe key
+`'fast-xml-parser@<5.6.0': '5.9.0'` — a window the resolved version does NOT
+satisfy — still fired and installed 5.9.0.
+
+## Removed, with the reason (do not re-add blindly)
+
+- **2026-08-22 `'fast-xml-parser@>=5.9.3 <5.10.1': '5.10.1'`** — GHSA-8r6m-32jq-jx6q
+  is bounded above (first patched 5.10.1), and `^5.5.6` floats clear of the window
+  on its own. The entry was pinning 5.10.1 while 5.11.0 existed. Two fresh
+  `--lockfile-only` resolves differed in exactly one package (5.10.1 with / 5.11.0
+  without) and `pnpm audit` was clean without it.
+- 2026-05-10 `handlebars`, `minimatch`, `yaml` — same pattern: natural transitive
+  resolution already picks a patched version.
+
+## The verification that actually proves something
+
+Diffing against the committed lockfile proves nothing — it already carries the
+pinned versions. Do **two fresh `--lockfile-only` resolves** from the same
+`package.json` in a scratch dir, one with `overrides:` and one with it stripped,
+diff the resolved versions, and run `pnpm audit` on both. Strip `auditConfig` too,
+or a suppression hides the answer.
+
+Note `pnpm install` reuses existing lockfile entries, so after changing an override
+you need `pnpm update <pkg>` or a full `rm -rf node_modules pnpm-lock.yaml` to see
+the real resolution.
+
+## Deprecated transitive deps (internal to commit-and-tag-version, no advisory)
+
+`git-raw-commits`, `git-semver-tags` — not fixable via overrides, no action.
