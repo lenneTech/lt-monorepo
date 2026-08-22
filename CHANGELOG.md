@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.5](https://github.com/lenneTech/lt-monorepo/compare/v3.9.4...v3.9.5) (2026-08-22)
+
+### Bug Fixes
+
+* **ci:** make the script-existence guard see the calls it claims to check ([44e4a66](https://github.com/lenneTech/lt-monorepo/commit/44e4a665f02e765b02ea70010e0ead7d9ddd5c74))
 ## [3.9.4](https://github.com/lenneTech/lt-monorepo/compare/v3.9.3...v3.9.4) (2026-08-22)
 
 ### Bug Fixes
