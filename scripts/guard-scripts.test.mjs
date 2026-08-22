@@ -152,13 +152,20 @@ describe('check-playwright-image.mjs', () => {
     assert.equal(res.status, 0, `${res.stdout}${res.stderr}`);
   });
 
-  it('skips cleanly on a bare template with no app package', () => {
+  it('warns rather than passing silently on a bare template with no app package', () => {
     // Must not be mistaken for a pass that verified something: this repo IS that
     // template, so the "passes against this repository" case above takes the skip
     // path — which is exactly why the drift case is asserted on a fixture.
+    //
+    // The wording is asserted, not just the exit code. A skip that printed "ok" is
+    // what let the image pins drift for eleven days behind a green check, so the
+    // message has to say plainly that nothing was compared — on stderr, where a
+    // warning belongs.
     const root = fixture(SCRIPT, { 'package.json': { name: 'f' } });
     const res = runIn(root, SCRIPT);
     assert.equal(res.status, 0);
-    assert.match(res.stdout, /skipping/);
+    assert.match(res.stderr, /WARN/);
+    assert.match(res.stderr, /nothing compared/);
+    assert.doesNotMatch(res.stdout, /\bok\b/);
   });
 });

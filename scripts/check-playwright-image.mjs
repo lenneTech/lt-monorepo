@@ -42,7 +42,18 @@ if (existsSync(appPkgPath)) {
   }
 }
 if (!pkgVersion) {
-  console.log('[playwright-image] ok — no @playwright/test in projects/app, skipping');
+  // WARN, not ok. In THIS repo `projects/` is empty by design, so the guard always
+  // lands here and a green `pnpm run check` implies a validation that never ran.
+  // That is not academic: the pins drifted for eleven days behind a green check,
+  // because the only repo that could have caught it is the one that cannot run
+  // this comparison. Saying "ok" here is what made that invisible.
+  console.warn(
+    '[playwright-image] WARN — no @playwright/test in projects/app, nothing compared.\n' +
+      '  Expected in the lt-monorepo template itself (projects/ is empty).\n' +
+      '  The CI image pins are therefore UNVERIFIED here; they are only checked once a\n' +
+      '  project is generated. When bumping @playwright/test in nuxt-base-starter, raise\n' +
+      "  this repo's image pins in the same change.",
+  );
   process.exit(0);
 }
 // Exact pins only (project policy: no ^ or ~). Strip a leading range char defensively.

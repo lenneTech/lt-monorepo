@@ -202,7 +202,7 @@ app:test:
   # An unguarded pin is worse than a guarded tag: the guard is what actually keeps
   # the image and @playwright/test from diverging, which is the failure that breaks
   # the suite now that `playwright install` is gone.
-  image: mcr.microsoft.com/playwright:v1.61.1-noble
+  image: mcr.microsoft.com/playwright:v1.62.1-noble
   timeout: 1 hours
   # NOTE: deliberately NOT `extends: .distributed` for the cache — the rules and
   # before_script are inherited, the cache is overridden below.
@@ -371,7 +371,7 @@ app:test:
 # practice.
 app:report:
   stage: test
-  image: mcr.microsoft.com/playwright:v1.61.1-noble
+  image: mcr.microsoft.com/playwright:v1.62.1-noble
   extends: .distributed
   when: always
   needs:
