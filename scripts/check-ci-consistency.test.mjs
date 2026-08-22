@@ -17,9 +17,10 @@
 // gets asserted in its passing state is indistinguishable from a rule that is
 // never evaluated at all.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { after, describe, it } from 'node:test';
 
 import {
@@ -30,6 +31,9 @@ import {
   servicesBlock,
   splitGithubJobs,
 } from './check-ci-consistency.mjs';
+
+/** The repo this suite is running in — the template, or a generated project. */
+const ROOT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const dirs = [];
 after(() =>
@@ -511,12 +515,30 @@ describe('no-op protection', () => {
     assert.ok(armed(res, 'gitlab/api:test: mongo service'), 'api:test must be covered by the mongo rule');
     assert.ok(armed(res, 'gitlab/app:test: mongo service'), 'app:test must be covered by the mongo rule');
     // The only test that runs against the SHIPPED config, and it was blind to the
-    // whole `skipped` field. `projects/` is empty here by design, so the three
-    // sub-project calls in each pipeline must show up as skips — on both arms.
-    assert.ok(res.skipped.length >= 6, `expected the sub-project calls to be reported as skips; got ${res.skipped.length}`);
-    assert.ok(res.skipped.some((sk) => sk.startsWith('gitlab/')), 'gitlab skips must be reported');
-    assert.ok(res.skipped.some((sk) => sk.startsWith('github/')), 'github skips must be reported');
-    assert.ok(res.skipped.every((sk) => /no package.json at \//.test(sk)), 'a skip must name the path it observed');
+    // whole `skipped` field. What it must assert DEPENDS ON THE REPO, and getting
+    // that wrong is how this file first shipped: this same test travels into every
+    // generated project, where `projects/` is POPULATED and there is nothing to
+    // skip. Asserting the template's state as a universal truth reddened the very
+    // first `pnpm run check` of a fresh workspace — caught by the smoke test.
+    //
+    // So: branch on what the repo actually is, and make each side a real claim.
+    const populated = existsSync(join(ROOT_DIR, 'projects', 'api', 'package.json'));
+    if (populated) {
+      // A generated project: every sub-project call resolves, so the rule must
+      // ARM on them — this is where it does its real work.
+      assert.equal(res.skipped.length, 0, `sub-projects exist, nothing should be skipped; got ${JSON.stringify(res.skipped)}`);
+      assert.ok(
+        armed(res, 'exists in projects/api') || armed(res, 'exists in projects/app'),
+        'with the sub-projects present the script-existence rule must actually run',
+      );
+    } else {
+      // The template: `projects/` is empty by design, so the three sub-project
+      // calls in each pipeline must be REPORTED as skips rather than swallowed.
+      assert.ok(res.skipped.length >= 6, `expected the sub-project calls to be reported as skips; got ${res.skipped.length}`);
+      assert.ok(res.skipped.some((sk) => sk.startsWith('gitlab/')), 'gitlab skips must be reported');
+      assert.ok(res.skipped.some((sk) => sk.startsWith('github/')), 'github skips must be reported');
+      assert.ok(res.skipped.every((sk) => /no package.json at \//.test(sk)), 'a skip must name the path it observed');
+    }
   });
 });
 
