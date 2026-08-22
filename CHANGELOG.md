@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.2](https://github.com/lenneTech/lt-monorepo/compare/v3.9.1...v3.9.2) (2026-08-22)
+
+### Bug Fixes
+
+* **security:** drop a stale HIGH-advisory suppression that every generated project inherited ([de8bb9b](https://github.com/lenneTech/lt-monorepo/commit/de8bb9b928efee6f1005dcb91c5efd1447f15604))
 ## [3.9.1](https://github.com/lenneTech/lt-monorepo/compare/v3.9.0...v3.9.1) (2026-08-22)
 
 ### Documentation
