@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.6](https://github.com/lenneTech/lt-monorepo/compare/v3.9.5...v3.9.6) (2026-08-22)
+
+### Bug Fixes
+
+* **ci:** assert what the script-existence rule means IN THIS repo, not in the template ([03874a4](https://github.com/lenneTech/lt-monorepo/commit/03874a4b863a8d833fcc701dd68f7170f4aa5555))
 ## [3.9.5](https://github.com/lenneTech/lt-monorepo/compare/v3.9.4...v3.9.5) (2026-08-22)
 
 ### Bug Fixes
