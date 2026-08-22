@@ -172,7 +172,7 @@ jobs:
         run: |
           # Wait for Mongo BEFORE starting the API — the compiled API only retries
           # the connection a bounded number of times and then stays down.
-          timeout 120 bash -c 'until (exec 3<>/dev/tcp/mongo/27017) 2>/dev/null; do sleep 2; done'
+          node scripts/wait-for-tcp.mjs mongo 27017 120
           # Migrations first: `start:e2e:dist` is bare node and does not run them.
           # Without them the demo data is missing and every test built on it skips
           # itself — a suite that quietly skips away reports green and verifies

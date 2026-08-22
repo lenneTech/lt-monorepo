@@ -158,7 +158,11 @@ api:test:
     # slow-starting service would surface as an opaque setup timeout. The runner's
     # own service health check usually covers this — belt and braces, and it keeps
     # the two test jobs symmetrical.
-    - timeout 120 bash -c 'until (exec 3<>/dev/tcp/mongo/27017) 2>/dev/null; do sleep 2; done'
+    # NOT `bash -c ... /dev/tcp/...`: /dev/tcp is a bash builtin, and this job runs on
+    # the global node:22-alpine image, whose /bin/sh is busybox and which ships no bash.
+    # That failed with exit 127 before a single test ran. Node is the one interpreter
+    # present in every image this pipeline uses.
+    - node scripts/wait-for-tcp.mjs mongo 27017 120
     - pnpm run api:test
 
 # The Playwright suite, split across two containers.
@@ -299,7 +303,9 @@ app:test:
     # Wait for Mongo BEFORE starting the API. The compiled API only retries the
     # connection a bounded number of times and then stays down — a slow-starting
     # service would otherwise kill the shard before a single test ran.
-    - timeout 120 bash -c 'until (exec 3<>/dev/tcp/mongo/27017) 2>/dev/null; do sleep 2; done'
+    # Same probe as api:test. This job's Playwright image DOES have bash, but keeping
+    # one implementation means the next image swap cannot resurrect the exit-127 bug.
+    - node scripts/wait-for-tcp.mjs mongo 27017 120
     # Migrations BEFORE the start: `start:e2e:dist` is bare node and does not run
     # them. Without them the demo data is missing and every test built on it skips
     # itself — a suite that quietly skips away reports green and verifies nothing.
