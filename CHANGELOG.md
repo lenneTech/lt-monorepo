@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.3](https://github.com/lenneTech/lt-monorepo/compare/v3.9.2...v3.9.3) (2026-08-22)
+
+### Bug Fixes
+
+* **ci:** raise the Playwright images to v1.62.1 and stop the guard claiming "ok" ([88473dd](https://github.com/lenneTech/lt-monorepo/commit/88473dd9647d1ff2439da0481a9ebeddae268bdf))
 ## [3.9.2](https://github.com/lenneTech/lt-monorepo/compare/v3.9.1...v3.9.2) (2026-08-22)
 
 ### Bug Fixes
