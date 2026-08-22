@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.4](https://github.com/lenneTech/lt-monorepo/compare/v3.9.3...v3.9.4) (2026-08-22)
+
+### Bug Fixes
+
+* **ci:** probe Mongo with node, not a bash-only builtin ([01d000f](https://github.com/lenneTech/lt-monorepo/commit/01d000f290c30634400ab3d007a1b2ad49dab3c1))
 ## [3.9.3](https://github.com/lenneTech/lt-monorepo/compare/v3.9.2...v3.9.3) (2026-08-22)
 
 ### Bug Fixes
