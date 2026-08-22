@@ -134,6 +134,173 @@ export function declaresMongoService(servicesText) {
 }
 
 /**
+ * pnpm subcommands that are NOT script names.
+ *
+ * `pnpm <name>` with no `run` executes the script `<name>` — that shorthand is
+ * idiomatic and fails with the same ERR_PNPM_NO_SCRIPT the rule exists to catch,
+ * so it has to be recognised. But `pnpm install` must not be read as a script
+ * called "install". Everything pnpm claims for itself is listed here; anything
+ * else is a script reference.
+ *
+ * `test` and `start` are deliberately ABSENT: pnpm's `test`/`start` subcommands
+ * do nothing but run the script of that name, so treating them as script
+ * references is correct rather than a special case.
+ */
+const PM_SUBCOMMANDS = new Set([
+  'add', 'approve-builds', 'audit', 'bin', 'config', 'create', 'dedupe', 'deploy', 'dlx', 'doctor',
+  'env', 'exec', 'fetch', 'i', 'import', 'init', 'install', 'licenses', 'link', 'list', 'ln', 'ls',
+  'outdated', 'pack', 'patch', 'patch-commit', 'patch-remove', 'prune', 'publish', 'rb', 'rebuild',
+  'remove', 'rm', 'root', 'run', 'self-update', 'server', 'setup', 'store', 'un', 'uninstall',
+  'unlink', 'up', 'update', 'why',
+]);
+
+/**
+ * Drop a trailing YAML comment, leaving `#` inside quotes alone.
+ *
+ * `stripComments` only removes whole comment LINES. A trailing one survives, and
+ * `- pnpm run build # pnpm run ghost` then yields a phantom invocation of a
+ * script YAML discards before the shell ever sees it — the guard reds a pipeline
+ * that is correct, which is the fastest way to get a guard deleted.
+ *
+ * Quote tracking matters in the other direction: `--filter "#tag"` and a shell
+ * string containing `#` are not comments, and cutting there would truncate a real
+ * command and hide the invocation after it.
+ */
+export function stripTrailingComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    // Require whitespace before `#` so `$#`, `a#b` and a bare `#!` are untouched.
+    if (ch === '#' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i);
+  }
+  return line;
+}
+
+/** Strip one layer of matching quotes from a shell word. */
+function unquote(word) {
+  return word ? word.replace(/^(["'])([\s\S]*)\1$/, '$2') : word;
+}
+
+/**
+ * Every package-manager script invocation in a pipeline body, with its target.
+ *
+ * Three things this has to get right, each learned from a way the first version
+ * was wrong:
+ *
+ * 1. **`cd` DOES carry across lines inside a block scalar.** Both pipelines use
+ *    `script: |` / `run: |` with a bare `cd projects/app` on its own line
+ *    (.gitlab-ci.yml and .github/workflows/test.yml, the Playwright step). The
+ *    first version scoped `cd` to a single line and justified it with "each entry
+ *    is its own shell invocation" — true for list items, false for block scalars.
+ *    The carry is therefore reset at each new sequence item (`- …`) and each new
+ *    mapping key (`key:`), and carried otherwise.
+ * 2. **pnpm's own directory flags are directory information.** `pnpm -C <dir> run x`
+ *    and `pnpm --dir <dir> run x` were parsed as flags and discarded, so the call
+ *    was attributed to the workspace root — a FALSE POSITIVE that reds a correct
+ *    pipeline.
+ * 3. **Quotes are shell syntax, not part of the value.** `cd "projects/api"` and
+ *    `pnpm run "start:e2e:dist"` were both silently dropped — the second one being
+ *    the exact invocation this rule was written to catch.
+ *
+ * Scanned left to right so a `cd` earlier on the line applies to a call later on
+ * it, whether joined by `&&` or `;` — both keep the same shell.
+ */
+export function scriptInvocations(text) {
+  const out = [];
+  // `cd` carried from a previous line of the same block scalar.
+  let blockCd = null;
+
+  const TOKEN = new RegExp(
+    [
+      // 1: cd target
+      String.raw`(?:^|[\s;&|(])cd\s+((?:"[^"]*")|(?:'[^']*')|(?:[^\s;&|()]+))`,
+      // 2: package manager, 3: flags, 4: explicit `run`, 5: script (optionally quoted)
+      String.raw`(?:^|[\s;&|(])(pnpm|npm|yarn)\s+((?:-{1,2}[\w.-]+(?:[= ][^\s]+)?\s+)*)(run\s+)?((?:"[^"]*")|(?:'[^']*')|(?:[A-Za-z0-9:._-]+))`,
+    ].join('|'),
+    'g',
+  );
+
+  for (const rawLine of text.split('\n')) {
+    // Whole-line comments never reach the shell.
+    if (/^\s*#/.test(rawLine)) continue;
+    const line = stripTrailingComment(rawLine);
+
+    // A new sequence item or mapping key starts a new shell; anything carried
+    // from the previous line of a block scalar stops applying here.
+    if (/^\s*-\s/.test(line) || /^\s*[A-Za-z_][\w.-]*:\s*(?:[|>][-+]?\d*)?\s*$/.test(line)) {
+      blockCd = null;
+    }
+
+    let cwd = blockCd;
+    for (const m of line.matchAll(TOKEN)) {
+      const [, cdTarget, pm, flagsRaw, runKeyword, scriptRaw] = m;
+
+      if (cdTarget !== undefined) {
+        cwd = unquote(cdTarget);
+        continue;
+      }
+
+      const flags = flagsRaw ?? '';
+      const script = unquote(scriptRaw);
+
+      // Without an explicit `run`, the token is a script only when pnpm/yarn do
+      // not claim it as a subcommand. npm has no such shorthand.
+      if (!runKeyword) {
+        if (pm === 'npm' || PM_SUBCOMMANDS.has(script)) continue;
+      }
+
+      // `-r` runs the script in every workspace package that HAS it and exits 0
+      // when none do. There is no single package.json to check it against, which
+      // is exactly why the build job asserts its artifacts by path instead.
+      if (/(?:^|\s)(?:-r|--recursive)(?:\s|$)/.test(flags)) {
+        out.push({ kind: 'recursive', script });
+        continue;
+      }
+      if (/--filter/.test(flags)) {
+        out.push({ kind: 'filtered', script });
+        continue;
+      }
+
+      const dirFlag = /(?:^|\s)(?:--dir|-C)[= ]((?:"[^"]*")|(?:'[^']*')|(?:[^\s]+))/.exec(flags);
+      out.push({ dir: unquote(dirFlag?.[1]) ?? cwd ?? '.', kind: 'direct', script });
+    }
+
+    // Carry whatever the line ended up in, for the next line of the same block.
+    blockCd = cwd;
+  }
+
+  return out;
+}
+
+/**
+ * The `scripts` keys of `<root>/<dir>/package.json`.
+ *
+ * Three outcomes, kept distinct on purpose. `missing` is the ordinary case in
+ * this repo — `projects/` is empty until `lt fullstack init` fills it — and must
+ * be reported rather than swallowed, or the rule reads as "held" in the one repo
+ * that owns the CI files. `unreadable` is a defect in its own right: a
+ * package.json that does not parse would otherwise skip exactly like an absent
+ * one, which is how a guard ends up green against a broken project.
+ */
+export function packageScripts(root, dir) {
+  const path = join(root, dir, 'package.json');
+  if (!existsSync(path)) return { kind: 'missing', path };
+  try {
+    return { kind: 'ok', scripts: Object.keys(JSON.parse(readFileSync(path, 'utf8')).scripts ?? {}) };
+  } catch (err) {
+    return { kind: 'unreadable', path, reason: err.message };
+  }
+}
+
+/**
  * Split a GitLab CI file into top-level blocks keyed by job name.
  * Deliberately textual rather than a YAML parse: GitLab's `!reference` tag is not
  * standard YAML and trips most parsers, and every rule here is a shape check.
@@ -156,7 +323,12 @@ export function splitTopLevelBlocks(text) {
 /** Same idea for GitHub Actions, where jobs are nested one level under `jobs:`. */
 export function splitGithubJobs(text) {
   const out = {};
-  const jobsAt = text.indexOf('\njobs:');
+  // `jobs:` may legally be the FIRST line — YAML imposes no key order. Anchoring
+  // on `\njobs:` alone made such a workflow parse as zero jobs, so every rule
+  // silently skipped it and the run reported "no CI job matched any rule". A
+  // guard that quietly evaluates nothing is the failure mode this file exists to
+  // prevent, so match at position 0 too.
+  const jobsAt = /^jobs:/.test(text) ? 0 : text.indexOf('\njobs:');
   if (jobsAt === -1) return out;
   let current = null;
   for (const line of text.slice(jobsAt).split('\n')) {
@@ -199,11 +371,59 @@ export function effectiveBody(jobs, name, seen = new Set()) {
 export function checkCiConsistency(root = ROOT) {
   const problems = [];
   const checked = [];
+  const skipped = [];
 
   /** Record a rule as evaluated, so the summary can prove it did not no-op. */
   const rule = (name, ok, detail) => {
     checked.push(name);
     if (!ok) problems.push(`${name}: ${detail}`);
+  };
+
+  /**
+   * Rule 7 — a script the pipeline calls must exist in the package it targets.
+   *
+   * Every other rule here checks the SHAPE of a command; none check that the
+   * command is real. `start:e2e:dist` was referenced by both pipelines while
+   * `nest-server-starter` defined no such script — the ordering rule above
+   * happily confirmed that a nonexistent script ran after `migrate:up`. In a
+   * generated project that surfaces as `ERR_PNPM_NO_SCRIPT` minutes into the
+   * run, in a job whose name says "e2e", pointing at neither the starter nor
+   * the pipeline that named it.
+   *
+   * Where a target package.json is absent the rule is recorded as SKIPPED, never
+   * silently passed. In this repo that is the normal state — `projects/` is
+   * empty by design — which is precisely why the skip has to be visible: the one
+   * repo that owns these CI files is the one where the rule cannot fire, and a
+   * quiet skip would let a bad reference ship to every project generated from it.
+   */
+  const checkScripts = (label, body) => {
+    for (const call of scriptInvocations(body)) {
+      if (call.kind !== 'direct') continue;
+      const target = packageScripts(root, call.dir);
+      const where = call.dir === '.' ? 'the workspace root' : call.dir;
+
+      if (target.kind === 'missing') {
+        // Report what was OBSERVED, not a presumed cause. The old text said
+        // "(no package.json there yet)" for every unresolved path — so a PARSER
+        // defect that produced a bogus directory read as the benign template
+        // skip, which is this file's own stated anti-pattern turned inward.
+        skipped.push(`${label}: \`pnpm run ${call.script}\` — no package.json at ${target.path}`);
+        continue;
+      }
+      if (target.kind === 'unreadable') {
+        rule(
+          `${label}: ${where}/package.json parses`,
+          false,
+          `cannot read ${target.path} (${target.reason}) — every script reference into this package is unverifiable, so treat it as broken rather than skipping it`,
+        );
+        continue;
+      }
+      rule(
+        `${label}: \`${call.script}\` exists in ${where}`,
+        target.scripts.includes(call.script),
+        `the pipeline runs \`pnpm run ${call.script}\` in ${where}, which defines no such script (has: ${target.scripts.join(', ') || 'none'}). The job dies on ERR_PNPM_NO_SCRIPT partway through, naming neither the project that lacks it nor the pipeline that asked for it`,
+      );
+    }
   };
 
   // ── GitLab ─────────────────────────────────────────────────────────────────
@@ -283,6 +503,8 @@ export function checkCiConsistency(root = ROOT) {
           '`start:e2e:dist` is bare node and runs no migrations. Without a `migrate:up` before it the demo data is missing and every test that depends on it skips itself — the suite reports green having verified nothing',
         );
       }
+
+      checkScripts(`gitlab/${name}`, body);
     }
 
     const buildBody = jobs.build ?? '';
@@ -330,11 +552,13 @@ export function checkCiConsistency(root = ROOT) {
             '`start:e2e:dist` runs no migrations; without `migrate:up` before it the dependent tests skip themselves and the suite reports a green nothing',
           );
         }
+
+        checkScripts(`github/${file}/${name}`, body);
       }
     }
   }
 
-  return { checked, problems };
+  return { checked, problems, skipped };
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
@@ -365,7 +589,19 @@ function isCliEntry() {
 }
 
 if (isCliEntry()) {
-  const { checked, problems } = checkCiConsistency();
+  const { checked, problems, skipped } = checkCiConsistency();
+
+  // Printed before the verdict, and printed even when everything passes. A rule
+  // that could not run is not a rule that held — and in THIS repo the script
+  // -existence rule is skipped for every sub-project call, because `projects/`
+  // stays empty until `lt fullstack init` fills it. Saying so out loud is the
+  // difference between "verified" and "assumed"; the same silence is what let a
+  // reference to a nonexistent `start:e2e:dist` ship to every generated project.
+  if (skipped.length) {
+    console.log(`[ci-consistency] ${skipped.length} check(s) could not run here:`);
+    for (const s of skipped) console.log(`  - ${s}`);
+    console.log('  (these DO run in a generated project, where the sub-projects exist)');
+  }
 
   if (checked.length === 0) {
     // Not an error: a bare template with no CI files, or a project that renamed
@@ -383,5 +619,9 @@ if (isCliEntry()) {
     process.exit(1);
   }
 
-  console.log(`[ci-consistency] ok — ${checked.length} rule(s) hold: ${checked.join(', ')}`);
+  // The skip count rides on the LAST line on purpose: both GitLab and GitHub
+  // collapse job output, and an unqualified `ok — N rule(s) hold` is read as
+  // full coverage while the skip block has scrolled out of view.
+  const skipNote = skipped.length ? `, ${skipped.length} skipped` : '';
+  console.log(`[ci-consistency] ok — ${checked.length} rule(s) hold${skipNote}: ${checked.join(', ')}`);
 }
