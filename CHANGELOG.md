@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.10.0](https://github.com/lenneTech/lt-monorepo/compare/v3.9.8...v3.10.0) (2026-08-23)
+
+### Features
+
+* **check:** detect wire-critical package splits in the assembled workspace ([2c560c0](https://github.com/lenneTech/lt-monorepo/commit/2c560c0a3712f1a2cb3fd234d796fbfa9dd28434))
 ## [3.9.8](https://github.com/lenneTech/lt-monorepo/compare/v3.9.7...v3.9.8) (2026-08-23)
 
 ### Bug Fixes
