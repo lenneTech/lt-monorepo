@@ -119,12 +119,130 @@ for (const { pkg, rel } of members) {
   );
 }
 
-if (problems.length > 0) {
+// ---------------------------------------------------------------------------
+// Wire-critical packages: api and app must resolve them to the SAME version.
+//
+// Some dependencies are not two projects' private business — they are one
+// protocol with two ends. better-auth is the case that taught us: the app talks
+// to the api through it, so a version split is a client and a server disagreeing
+// about their own wire format. It is invisible to both repos' own checks, since
+// each is internally consistent; only the assembled workspace has both halves.
+//
+// It shipped: nest-server pinned better-auth 1.6.26 as a hard dependency while
+// nuxt-extensions declared it as a peer, so the app moved to 1.7.1 and the api
+// could not follow. better-auth 1.7 gives `twoFactor.enable` a discriminated
+// result carrying `method`, which 1.6.26 never sends — so EVERY 2FA activation
+// failed, with a generic client error and nothing unusual in the server log.
+//
+// Two things are checked, because they fail differently:
+//   1. What the manifests PROMISE — the frameworks' peer ranges must agree.
+//      A mismatch here is a future split, even when today's install is fine.
+//   2. What is INSTALLED — the resolved versions per member must be identical.
+//      This is the one that actually breaks, and `shamefullyHoist: true` makes
+//      it worse: with two versions in the tree, which one gets hoisted is not
+//      something either project controls.
+// ---------------------------------------------------------------------------
+const WIRE_CRITICAL = ["better-auth", "@better-auth/passkey", "@better-auth/core"];
+
+/** The framework libraries that own the contract, and therefore declare the peer ranges. */
+const CONTRACT_OWNERS = ["@lenne.tech/nest-server", "@lenne.tech/nuxt-extensions"];
+
+const wireProblems = [];
+
+// 1. Peer ranges promised by the framework libraries must be identical where both declare one.
+const declaredRanges = new Map(); // pkg -> [{ owner, range }]
+for (const { rel } of members) {
+  for (const owner of CONTRACT_OWNERS) {
+    const ownerPkg = readJson(join(ROOT, rel, "node_modules", owner, "package.json"));
+    if (!ownerPkg) continue;
+    for (const dep of WIRE_CRITICAL) {
+      const range = ownerPkg.peerDependencies?.[dep];
+      if (!range) continue;
+      if (!declaredRanges.has(dep)) declaredRanges.set(dep, []);
+      const seen = declaredRanges.get(dep);
+      if (!seen.some((e) => e.owner === owner)) seen.push({ owner, range });
+    }
+  }
+}
+
+for (const [dep, entries] of declaredRanges) {
+  const ranges = [...new Set(entries.map((e) => e.range))];
+  if (ranges.length <= 1) continue;
+  wireProblems.push(
+    `${dep}: the frameworks promise different ranges —\n`
+      + entries.map((e) => `        ${e.owner} says "${e.range}"`).join("\n")
+      + `\n      They are two ends of one protocol, so the ranges must be identical.\n`
+      + `      Raise them together, in both repos, in the same release.`,
+  );
+}
+
+// 2. What is actually installed per member.
+for (const dep of WIRE_CRITICAL) {
+  const resolved = new Map(); // version -> [member rel]
+  for (const { rel } of members) {
+    const installed = readJson(join(ROOT, rel, "node_modules", dep, "package.json"));
+    if (!installed?.version) continue;
+    if (!resolved.has(installed.version)) resolved.set(installed.version, []);
+    resolved.get(installed.version).push(rel);
+  }
+
+  if (resolved.size <= 1) continue;
+
+  wireProblems.push(
+    `${dep} resolves to ${resolved.size} different versions in one workspace —\n`
+      + [...resolved].map(([v, rels]) => `        ${v}  in ${rels.join(", ")}`).join("\n")
+      + `\n      Client and server would speak different versions of the same protocol.\n`
+      + `      Pin the SAME version in every member's package.json.`,
+  );
+}
+
+// 3. Is anybody actually PINNING it, or did pnpm just guess?
+//
+// Checks 1 and 2 both pass on a workspace where nobody declares the package at
+// all. `autoInstallPeers` defaults to TRUE, so pnpm quietly installs a missing
+// peer by picking from the framework's range — and picks the same thing for both
+// members, on the same day. Identical versions, identical ranges, guard silent,
+// nothing pinned. The next install is free to land somewhere else, and the first
+// member to be installed separately (a Docker build, a CI cache miss) is the one
+// that drifts.
+//
+// So the absence of a declaration is its own defect, independent of what is
+// installed right now. Only members that HAVE the package resolved are asked for
+// a declaration — a project legitimately not using it is not required to pin it.
+for (const dep of WIRE_CRITICAL) {
+  const undeclared = [];
+
+  for (const { pkg, rel } of members) {
+    const installed = readJson(join(ROOT, rel, "node_modules", dep, "package.json"));
+    if (!installed?.version) continue;
+
+    const declared = pkg.dependencies?.[dep] ?? pkg.devDependencies?.[dep] ?? pkg.peerDependencies?.[dep];
+    if (!declared) undeclared.push({ rel, version: installed.version });
+  }
+
+  if (undeclared.length === 0) continue;
+
+  wireProblems.push(
+    `${dep} is installed but declared nowhere in —\n`
+      + undeclared.map((u) => `        ${u.rel}  (pnpm resolved ${u.version} on its own)`).join("\n")
+      + `\n      With autoInstallPeers (pnpm's default), a missing peer is filled in silently from\n`
+      + `      the framework's range. It agrees today and is free to drift on the next install.\n`
+      + `      Add it to that member's package.json, pinned to the exact version.`,
+  );
+}
+
+if (problems.length > 0 || wireProblems.length > 0) {
   console.error("[workspace-consistency] the assembled workspace is inconsistent:\n");
   for (const p of problems) console.error(`  ✗ ${p}`);
+  for (const p of wireProblems) console.error(`  ✗ ${p}`);
   process.exit(1);
 }
 
+const checkedWire = WIRE_CRITICAL.filter((dep) =>
+  members.some(({ rel }) => readJson(join(ROOT, rel, "node_modules", dep, "package.json"))),
+);
+
 console.log(
-  `[workspace-consistency] ok — ${members.length} member(s) agree with the root on packageManager (${root.packageManager ?? "unset"})`,
+  `[workspace-consistency] ok — ${members.length} member(s) agree with the root on packageManager (${root.packageManager ?? "unset"})`
+    + (checkedWire.length > 0 ? `, and on ${checkedWire.join(", ")}` : ""),
 );
