@@ -15,6 +15,10 @@
  *      no hardcoded `npm install -g pnpm@<digits>`, no `corepack enable`, and no
  *      pnpm/action-setup step with a `version:` input (the action reads the
  *      packageManager field on its own).
+ *  3b. Every Dockerfile in the repo (searched recursively from the root, minus
+ *      node_modules/.git/dist/.output/.nuxt/coverage) provisions pnpm the same
+ *      way. The run reports how many it read, and WARNs on stderr when it read
+ *      none — a pass that verified no image must not look like one that did.
  *   4. FUNCTIONAL proof (only with CI=1 or PIN_PROVISION_TEST=1 — needs network
  *      and ~10MB, so it must not slow local pre-push hooks): the derive-line
  *      really resolves to the pinned spec, and `npm install -g --prefix <tmp>`
@@ -123,7 +127,7 @@ for (const rel of ciFiles) {
   if (mustDerive.includes(rel)) {
     check(`${rel} provisions pnpm via the derive-line`, () => {
       assert.ok(
-        text.includes(DERIVE_PATTERN),
+        code.includes(DERIVE_PATTERN),
         `expected "${DERIVE_PATTERN}" — every pnpm-running job must derive pnpm from package.json`,
       );
     });
@@ -138,23 +142,47 @@ for (const rel of ciFiles) {
 // install can fail (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH) or build prod with a
 // mismatched manager. This scan closes the blind spot that let that drift ship.
 // ---------------------------------------------------------------------------
+// Walked, not listed: a Dockerfile also lives in a top-level `docker/`, a
+// `deploy/`, or as `api.Dockerfile` beside the compose file. Scanning a fixed
+// list of roots read none of those and still printed "all checks passed".
+const SKIP_DIRS = new Set([".git", ".nuxt", ".output", "coverage", "dist", "node_modules"]);
+// Matches `Dockerfile`, `Dockerfile.prod`, `api.Dockerfile` and lowercase spellings.
+const DOCKERFILE_NAME = /(^|\.)dockerfile(\.|$)/i;
+
 const dockerFiles = [];
 const collectDockerfiles = (dir) => {
+  let entries;
   try {
-    for (const f of readdirSync(join(ROOT, dir))) {
-      if (/^Dockerfile/.test(f)) dockerFiles.push(dir === "." ? f : join(dir, f));
-    }
+    entries = readdirSync(join(ROOT, dir), { withFileTypes: true });
   } catch {
-    /* directory absent — nothing to scan */
+    return; // directory absent or unreadable — nothing to scan
+  }
+  for (const entry of entries) {
+    const rel = dir === "." ? entry.name : join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRS.has(entry.name)) collectDockerfiles(rel);
+    } else if (DOCKERFILE_NAME.test(entry.name)) {
+      dockerFiles.push(rel);
+    }
   }
 };
 collectDockerfiles(".");
-try {
-  for (const d of readdirSync(join(ROOT, "projects"), { withFileTypes: true })) {
-    if (d.isDirectory()) collectDockerfiles(join("projects", d.name));
-  }
-} catch {
-  /* no projects/ (single-package repo) */
+dockerFiles.sort();
+
+// Each Dockerfile below prints its own check lines, so a repo with none printed
+// nothing and still ended in "all checks passed". check-playwright-image.mjs
+// learned what that costs — its pins drifted eleven days behind a green check
+// because the skip path said "ok" — so this follows its contract: stderr + WARN,
+// asserted in guard-scripts.test.mjs.
+if (dockerFiles.length === 0) {
+  console.warn(
+    `${TAG} WARN — no Dockerfile found, nothing scanned.\n` +
+      `  Expected in the lt-monorepo template itself (projects/ is empty until\n` +
+      `  \`lt fullstack init\` clones the starters). The images' pnpm provisioning\n` +
+      `  is UNVERIFIED here; it is only checked once a project is generated.`,
+  );
+} else {
+  console.log(`${TAG} scanning ${dockerFiles.length} Dockerfile(s): ${dockerFiles.join(", ")}`);
 }
 
 for (const rel of dockerFiles) {
@@ -188,7 +216,7 @@ for (const rel of dockerFiles) {
   if (/(?<!\/)\bpnpm\s/.test(code)) {
     check(`${rel} provisions pnpm via the derive-line`, () => {
       assert.ok(
-        text.includes(DERIVE_PATTERN),
+        code.includes(DERIVE_PATTERN),
         `expected "${DERIVE_PATTERN}" — a Dockerfile that runs pnpm must derive it from package.json`,
       );
     });
@@ -235,4 +263,4 @@ if (failures.length > 0) {
   console.error(`\n${TAG} ${failures.length} check(s) failed`);
   process.exit(1);
 }
-console.log(`${TAG} all checks passed — pin ${pkg.packageManager}`);
+console.log(`${TAG} all checks passed — ${dockerFiles.length} Dockerfile(s) scanned — pin ${pkg.packageManager}`);

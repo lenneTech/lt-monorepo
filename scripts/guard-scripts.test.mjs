@@ -80,6 +80,89 @@ describe('check-packagemanager-pin.mjs', () => {
     });
     assert.notEqual(runIn(root, SCRIPT).status, 0);
   });
+
+  // --- section 3b: the Dockerfile scan ------------------------------------
+  // Until these existed, that scan had never executed. This repo ships no
+  // Dockerfile at all (`projects/` stays empty until `lt fullstack init`), so
+  // the "passes against this repository" case above passed by reading nothing —
+  // the precise "condition never matches, reports success" failure this file
+  // exists to catch, sitting inside the file that catches it.
+  const PKG = { engines: { pnpm: '^11.0.0' }, name: 'f', packageManager: VALID_PIN };
+  const BAD_DOCKERFILE = 'FROM node:24-alpine\nRUN corepack enable\nRUN pnpm install\n';
+  const GOOD_DOCKERFILE = [
+    'FROM node:24-alpine',
+    'RUN npm install -g "$(node -p "require(\'./package.json\').packageManager.split(\'+\')[0]")"',
+    'RUN pnpm install --frozen-lockfile',
+    '',
+  ].join('\n');
+
+  // Every path here except `docker/api/` was read by NO previous version of the
+  // scan: it walked the SUBdirectories of a three-root allowlist, so a Dockerfile
+  // in a root itself, one nested a level deeper, or one named `api.Dockerfile`
+  // went unread while the run still reported success.
+  for (const rel of [
+    'Dockerfile',
+    'api.Dockerfile',
+    'docker/Dockerfile',
+    'docker/api/Dockerfile',
+    'projects/api/Dockerfile',
+    'projects/api/docker/Dockerfile',
+    'tools/Dockerfile',
+  ]) {
+    it(`fires on a corepack Dockerfile at ${rel}`, () => {
+      const root = fixture(SCRIPT, { 'package.json': PKG, [rel]: BAD_DOCKERFILE });
+      const res = runIn(root, SCRIPT);
+      assert.notEqual(res.status, 0, `${rel} went unscanned:\n${res.stdout}${res.stderr}`);
+      assert.match(res.stderr, /corepack/);
+    });
+  }
+
+  it('fires on a Dockerfile that hardcodes a pnpm version', () => {
+    const root = fixture(SCRIPT, {
+      'package.json': PKG,
+      'projects/api/Dockerfile': 'FROM node:24-alpine\nRUN npm install -g pnpm@10.0.0\nRUN pnpm install\n',
+    });
+    assert.notEqual(runIn(root, SCRIPT).status, 0);
+  });
+
+  it('passes a Dockerfile that derives pnpm from the pin', () => {
+    const root = fixture(SCRIPT, { 'package.json': PKG, 'projects/api/Dockerfile': GOOD_DOCKERFILE });
+    const res = runIn(root, SCRIPT);
+    assert.equal(res.status, 0, `${res.stdout}${res.stderr}`);
+  });
+
+  it('ignores Dockerfiles vendored inside node_modules', () => {
+    const root = fixture(SCRIPT, { 'package.json': PKG, 'projects/node_modules/Dockerfile': BAD_DOCKERFILE });
+    const res = runIn(root, SCRIPT);
+    assert.equal(res.status, 0, `a dependency's Dockerfile must not red the repo:\n${res.stdout}${res.stderr}`);
+  });
+
+  it('reports how many Dockerfiles it scanned, and which', () => {
+    const root = fixture(SCRIPT, {
+      'docker/web/Dockerfile': GOOD_DOCKERFILE,
+      'package.json': PKG,
+      'projects/api/Dockerfile': GOOD_DOCKERFILE,
+    });
+    const res = runIn(root, SCRIPT);
+    assert.equal(res.status, 0, `${res.stdout}${res.stderr}`);
+    assert.match(res.stdout, /scanning 2 Dockerfile\(s\)/);
+    assert.match(res.stdout, /projects\/api\/Dockerfile/);
+  });
+
+  // Same contract as check-playwright-image.mjs below, for the same reason: a run
+  // that compared nothing has to say so on stderr, and the tail must not read as
+  // coverage. The WORDING is asserted deliberately — an unasserted message can be
+  // reworded or dropped while `check` stays green, which leaves it exactly as
+  // unverifiable as the silence it replaced.
+  it('warns on stderr when it found no Dockerfile at all', () => {
+    const root = fixture(SCRIPT, { 'package.json': PKG });
+    const res = runIn(root, SCRIPT);
+    assert.equal(res.status, 0);
+    assert.match(res.stderr, /WARN/);
+    assert.match(res.stderr, /no Dockerfile found/);
+    assert.match(res.stderr, /UNVERIFIED/);
+    assert.match(res.stdout, /0 Dockerfile\(s\) scanned/);
+  });
 });
 
 describe('check-workspace-consistency.mjs', () => {

@@ -50,3 +50,13 @@ See [[project-template-and-deploy-stack]] for repo scoping.
   build starts** (`HEALTHCHECK_TCP_TIMEOUT`, default 30s), so `mongo:7` is up
   before `script:` runs. Explicit `until /dev/tcp/mongo/27017` waits are
   belt-and-braces, not the primary gate.
+
+- **The "guard fires in the template" convention is asserted, not just implied** — the reference
+  implementation is `scripts/check-playwright-image.mjs` (skip path) + `scripts/guard-scripts.test.mjs`
+  (`'warns rather than passing silently on a bare template with no app package'`). The test pins the
+  CONTRACT, not the wording: exit 0, `stderr` matches `/WARN/` and `/nothing compared/`, and `stdout`
+  must NOT contain `ok`. Rationale in that test: an "ok" on a skip path let the Playwright image pins
+  drift eleven days behind a green check. Recurring review theme (see commits 44e4a66, 03874a4).
+  **How to apply:** when any `scripts/check-*.mjs` gains a "nothing to compare here" branch, hold it
+  to that contract — stderr + WARN + no "ok"/"all checks passed" tail — and require a fixture test in
+  `guard-scripts.test.mjs` in BOTH directions (real repo passes, broken fixture fails).
