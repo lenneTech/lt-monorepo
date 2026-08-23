@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.7](https://github.com/lenneTech/lt-monorepo/compare/v3.9.6...v3.9.7) (2026-08-23)
+
+### Bug Fixes
+
+* **check:** find Dockerfiles anywhere and warn when none were scanned ([2d7c063](https://github.com/lenneTech/lt-monorepo/commit/2d7c0637996ee4ce99ec0abbf3a06bb15d9e53e1))
 ## [3.9.6](https://github.com/lenneTech/lt-monorepo/compare/v3.9.5...v3.9.6) (2026-08-22)
 
 ### Bug Fixes
