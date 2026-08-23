@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.9.8](https://github.com/lenneTech/lt-monorepo/compare/v3.9.7...v3.9.8) (2026-08-23)
+
+### Bug Fixes
+
+* **check:** close gaps in gating, build-dir pinning, audit output and cleanup ([a976ab7](https://github.com/lenneTech/lt-monorepo/commit/a976ab7cdb0777ed14d1843d9d7a651c59b99923))
 ## [3.9.7](https://github.com/lenneTech/lt-monorepo/compare/v3.9.6...v3.9.7) (2026-08-23)
 
 ### Bug Fixes
