@@ -122,6 +122,22 @@ jobs:
       # shared collections (users, session, BetterAuth jwks) entirely.
       NSC__MONGOOSE__URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}
       MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}
+      # The E2E auth helpers refuse to wipe test data unless the database is on
+      # loopback (`assertSafeToDelete`, nuxt-base-starter →
+      # nuxt-base-template/tests/e2e/helpers/auth-backend.ts; in a generated
+      # project: projects/app/tests/e2e/helpers/auth-backend.ts) — a guard against
+      # a stray run emptying a real database.
+      #
+      # This job runs inside `container:` above, and a service container is
+      # reachable from inside a job container ONLY by its alias — never on
+      # 127.0.0.1, which GitHub maps only for jobs running directly on the runner.
+      # So the host here is `mongo`, the per-job service container, thrown away
+      # with the job: exactly the case the guard's opt-out exists for. Without
+      # this, every spec calling `resetTestData` fails, both shards red — and
+      # because deploy.yml gates `build-push` on this workflow, the deploy stops
+      # too. Job-scoped on purpose: at workflow level it would hand the same wipe
+      # permission to `api-test` and `build`, which have no business holding it.
+      E2E_ALLOW_REMOTE_DB: 'true'
       API_URL: http://localhost:3000
       # Relaxes rate-limiting + disables the Better-Auth user-cache so
       # freshly-promoted admin users are recognised immediately.

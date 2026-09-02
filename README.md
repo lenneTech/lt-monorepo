@@ -161,6 +161,20 @@ surfaces as `getaddrinfo ENOTFOUND mongo` behind MongoDB's 30 s server-selection
 timeout, once per call. The rule is GitLab-only by design: GitHub gives every job
 its own ephemeral runner and its own service containers.
 
+A further rule spans two repositories, which is why nothing caught it for a
+while. The E2E helpers refuse to reset test data against a database that is not
+on loopback unless `E2E_ALLOW_REMOTE_DB=true` — a guard against a stray run
+emptying a real one. The `FF_NETWORK_PER_BUILD` rule above, however, *requires*
+addressing the mongo service by its alias, and an alias is not loopback: obeying
+one rule is what trips the other. The URI lives in the CI file, the guard lives
+in the app's test helpers, and neither side can see the whole picture. Both
+`app:test` jobs therefore set the flag, job-scoped, and the checker asserts both
+directions — a Playwright job on a non-loopback database must carry the flag, and
+a job carrying it must point at a service container it declares. Unlike the
+`mongo` rule this one applies to **both** pipelines: the GitHub job runs inside a
+`container:`, where a service is reachable only by alias, so it has the identical
+problem rather than the absence of it.
+
 For the residual case — a service that dies *during* a run — both `app:test` jobs
 wrap Playwright in `scripts/mongo-watchdog.sh`. It polls the service alongside the
 run and aborts with an explicit infrastructure diagnosis instead of letting every

@@ -17,13 +17,14 @@
 // gets asserted in its passing state is indistinguishable from a rule that is
 // never evaluated at all.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, describe, it } from 'node:test';
 
 import {
+  LOOPBACK_URI,
   checkCiConsistency,
   declaresMongoService,
   packageScripts,
@@ -560,5 +561,238 @@ describe('helpers', () => {
   it('declaresMongoService is false for empty input', () => {
     assert.equal(declaresMongoService(''), false);
     assert.equal(declaresMongoService('    - name: redis:7\n'), false);
+  });
+});
+
+describe('E2E remote-DB opt-out rule', () => {
+  // The contradiction this rule exists for spans two repos and is invisible in
+  // either: `.gitlab-ci.yml` (here) points the suite at the mongo SERVICE
+  // CONTAINER by alias, while `assertSafeToDelete` (nuxt-base-template
+  // tests/e2e/helpers/auth-backend.ts) refuses to wipe a non-loopback database
+  // without `E2E_ALLOW_REMOTE_DB=true`. Both repos stayed green; the generated
+  // project went red in CI while the same suite passed locally against
+  // 127.0.0.1.
+  //
+  // Driven from both sides per this file's header: a rule only ever asserted in
+  // its passing state cannot be told apart from one that never runs.
+  // `script:` carries the Playwright call on purpose: rule 8's subject is a job
+  // that RESETS test data, not merely one that has a database. `api:test` in this
+  // repo declares a mongo service and a non-loopback `NSC__MONGOOSE__URI` too, and
+  // demanding the destructive opt-out THERE would talk a reader into granting
+  // delete rights to a job that never deletes anything.
+  const jobWith = (uri, extra = '', key = 'MONGO_URI') =>
+    `app:test:\n  stage: test\n  services:\n    - name: mongo:7\n      alias: mongo\n  variables:\n    FF_NETWORK_PER_BUILD: "true"\n    ${key}: "${uri}"\n${extra}  script:\n    - pnpm exec playwright test\n`;
+
+  const NEEDLE = 'E2E data reset is permitted';
+  const TARGET = 'opt-out targets a throwaway service container';
+  const ALIASED = 'mongodb://mongo:27017/app-ci-$CI_NODE_INDEX';
+  const OPT_OUT = '    E2E_ALLOW_REMOTE_DB: "true"\n';
+
+  it('FIRES when an aliased database carries no opt-out', () => {
+    const res = run({ gitlab: jobWith(ALIASED) });
+    assert.ok(armed(res, NEEDLE), 'rule must arm on an E2E job with a database');
+    assert.ok(failed(res, NEEDLE), 'rule must fire without E2E_ALLOW_REMOTE_DB');
+  });
+
+  it('passes once the opt-out is granted', () => {
+    const res = run({ gitlab: jobWith(ALIASED, OPT_OUT) });
+    assert.ok(armed(res, NEEDLE), 'rule must still arm — a silent skip would hide a regression');
+    assert.ok(!failed(res, NEEDLE));
+  });
+
+  // One `it` per host, not a loop in one: a loop aborts on the first failing host
+  // and reports one of three. Same shape as the mongo rule's `spellings` table.
+  for (const host of ['127.0.0.1', 'localhost', '[::1]']) {
+    it(`leaves a loopback database alone — ${host}`, () => {
+      const res = run({ gitlab: jobWith(`mongodb://${host}:27017/app-ci`) });
+      assert.ok(armed(res, NEEDLE), `rule must arm for ${host}`);
+      assert.ok(!failed(res, NEEDLE), `${host} is loopback and needs no opt-out`);
+    });
+  }
+
+  // The spellings `assertSafeToDelete` accepts as loopback and a paraphrased
+  // regex does not. Each one reds a CORRECT pipeline, and the cheapest way out of
+  // a red check is to set the destructive flag that was never needed — a guard
+  // that fails on correct config is the fastest route to being deleted.
+  for (const uri of ['mongodb://user:pw@127.0.0.1:27017/db', 'mongodb://localhost', 'mongodb+srv://localhost/db']) {
+    it(`treats \`${uri}\` as loopback, exactly as the runtime guard does`, () => {
+      const res = run({ gitlab: jobWith(uri) });
+      assert.ok(armed(res, NEEDLE), `rule must arm for ${uri}`);
+      assert.ok(!failed(res, NEEDLE), `${uri} is loopback to auth-backend.ts — demanding the opt-out here is a false positive`);
+    });
+  }
+
+  // The dangerous direction, and the reason `[:/]` was not good enough: the seed
+  // list STARTS loopback and ends at a real host. A terminator that matches the
+  // port colon waves it through while the runtime guard refuses it — check green,
+  // CI red, `prod.example.com` in the URI.
+  it('FIRES on a replica-set seed list that merely starts at loopback', () => {
+    const res = run({ gitlab: jobWith('mongodb://127.0.0.1:27017,prod.example.com:27017/app?replicaSet=rs0') });
+    assert.ok(failed(res, NEEDLE), 'a seed list reaching a real host must not pass as loopback');
+  });
+
+  // Prefix attack. Deleting the host terminator from the regex leaves every other
+  // test in this block green, so without this one the property is silently
+  // deletable — and it is the property the rule's own message promises.
+  it('FIRES on a host that merely begins with a loopback address', () => {
+    const res = run({ gitlab: jobWith('mongodb://127.0.0.1.evil.tld:27017/db') });
+    assert.ok(failed(res, NEEDLE), '`127.0.0.1.evil.tld` is not loopback');
+  });
+
+  // `NSC__MONGOOSE__URI` wins over `MONGO_URI` in auth-backend.ts:99, and it is
+  // the canonical lt spelling — nest-server does not read `MONGO_URI` at all. A
+  // rule greping only `MONGO_URI:` fails to ARM here, reporting a silent skip as
+  // coverage.
+  it('arms on NSC__MONGOOSE__URI, the spelling the stack actually uses', () => {
+    const res = run({ gitlab: jobWith(ALIASED, '', 'NSC__MONGOOSE__URI') });
+    assert.ok(armed(res, NEEDLE), 'rule must arm on the NSC__ form');
+    assert.ok(failed(res, NEEDLE), 'rule must fire without the opt-out');
+  });
+
+  it('lets NSC__MONGOOSE__URI win over MONGO_URI, as the guard does', () => {
+    const gitlab = jobWith('mongodb://127.0.0.1:27017/app-ci', '    NSC__MONGOOSE__URI: "mongodb://mongo:27017/x"\n');
+    assert.ok(failed(run({ gitlab }), NEEDLE), 'the NSC__ value decides, so the aliased host must fire');
+  });
+
+  // The third OR-branch. Deleting it left the whole suite green before this test:
+  // untested working code is indistinguishable from a clause that never runs.
+  it('accepts the opt-out in the global variables block', () => {
+    const res = run({ gitlab: `variables:\n  E2E_ALLOW_REMOTE_DB: "true"\n\n${jobWith(ALIASED)}` });
+    assert.ok(armed(res, NEEDLE), 'rule must still arm');
+    assert.ok(!failed(res, NEEDLE), 'a pipeline-wide opt-out satisfies the rule');
+  });
+
+  // A global block is CONFIG, not a job. Reported under `gitlab/variables` it
+  // blames something no runner executes, while the job that inherits the URI goes
+  // unnamed — the same reasoning that skips hidden `.template` blocks.
+  it('never reports a finding against the `variables` block itself', () => {
+    const res = run({ gitlab: `variables:\n  MONGO_URI: "${ALIASED}"\n\n${jobWith(ALIASED)}` });
+    assert.ok(
+      !res.checked.some((c) => c.startsWith('gitlab/variables') && c.includes(NEEDLE)),
+      'the global block is not a job and must never be the subject of this rule',
+    );
+    assert.ok(armed(res, `gitlab/app:test: ${NEEDLE}`), 'the job that inherits the URI is the subject');
+  });
+
+  // `merged` vs `clean`: with no fixture using `extends:` the two are the same
+  // string and the choice between them is unfalsifiable.
+  it('accepts an opt-out inherited through extends', () => {
+    const gitlab = `.e2e-db:\n  variables:\n    E2E_ALLOW_REMOTE_DB: "true"\n\n${jobWith(ALIASED, '  extends: .e2e-db\n')}`;
+    assert.ok(!failed(run({ gitlab }), NEEDLE), 'an inherited opt-out counts');
+  });
+
+  it('blames the real job, not the hidden template, for an inherited database', () => {
+    const gitlab = `.e2e-db:\n  variables:\n    MONGO_URI: "${ALIASED}"\n\napp:test:\n  stage: test\n  extends: .e2e-db\n  script:\n    - pnpm exec playwright test\n`;
+    const res = run({ gitlab });
+    assert.ok(failed(res, `gitlab/app:test: ${NEEDLE}`), 'the job that runs must be named');
+    assert.ok(
+      !res.checked.some((c) => c.startsWith('gitlab/.e2e-db') && c.includes(NEEDLE)),
+      'a hidden template never runs — naming it sends the reader to the wrong file',
+    );
+  });
+
+  // Scoping. An unscoped grep also matches a `script:` line, producing a finding
+  // against a job that sets no such variable.
+  it('does not mistake a MONGO_URI mentioned in a script line for a variable', () => {
+    const gitlab =
+      'app:test:\n  stage: test\n  script:\n    - pnpm exec playwright test\n    - echo "MONGO_URI: mongodb://prod-cluster/live"\n';
+    assert.ok(!armed(run({ gitlab }), NEEDLE), 'a shell line is not configuration');
+  });
+
+  // A job with a database but no E2E suite — the `api:test` shape. Arming here
+  // would demand a destructive opt-out for a job that resets nothing.
+  it('stays silent for a job that has a database but runs no E2E suite', () => {
+    const gitlab =
+      'api:test:\n  stage: test\n  services:\n    - name: mongo:7\n      alias: mongo\n  variables:\n    FF_NETWORK_PER_BUILD: "true"\n    NSC__MONGOOSE__URI: "mongodb://mongo:27017/api-ci"\n  script:\n    - pnpm run api:test\n';
+    assert.ok(!armed(run({ gitlab }), NEEDLE), 'no resetTestData, no permission to demand');
+  });
+
+  // The inverse assertion. Rule 8's first half is satisfied forever once the flag
+  // is set; this is what still asks whether the thing being wiped is disposable.
+  it('FIRES when the opt-out points somewhere the job declares no service for', () => {
+    const gitlab = jobWith('mongodb://shared-staging.example.com:27017/app', OPT_OUT);
+    assert.ok(failed(run({ gitlab }), TARGET), 'a granted wipe permission must name a service the job owns');
+  });
+
+  it('accepts the opt-out when the host IS the job\'s own service alias', () => {
+    assert.ok(!failed(run({ gitlab: jobWith(ALIASED, OPT_OUT) }), TARGET), '`mongo` is this job\'s service container');
+  });
+});
+
+describe('LOOPBACK_URI drift detector', () => {
+  // `LOOPBACK_URI` here is a hand-copy of a `const` in another repo, because the
+  // layout leaves no alternative: this script runs in the template, where
+  // `projects/` is empty by design, so at that moment there is nothing to import
+  // from. A copy with no detector is a copy that drifts — and it already had,
+  // in both directions, before anyone noticed.
+  //
+  // Absence of the sibling checkout must be VISIBLY skipped, never green. CI here
+  // checks out this repo alone, so `../nuxt-base-starter` will not exist and a
+  // detector that "passed" would be indistinguishable from one that ran.
+  // `LT_DRIFT_STRICT=1` turns absence into a hard failure and belongs in the
+  // release workflow — the one moment drift actually costs something.
+  const UPSTREAM = join(
+    ROOT_DIR,
+    '..',
+    'nuxt-base-starter',
+    'nuxt-base-template/tests/e2e/helpers/auth-backend.ts',
+  );
+  const STRICT = process.env.LT_DRIFT_STRICT === '1';
+  const itDrift = existsSync(UPSTREAM) || STRICT ? it : it.skip;
+
+  itDrift('matches the guard it mirrors, character for character', () => {
+    assert.ok(existsSync(UPSTREAM), `LT_DRIFT_STRICT=1 but ${UPSTREAM} is absent — cannot prove the copy is current`);
+    const upstream = readFileSync(UPSTREAM, 'utf8');
+    const declared = /^const LOOPBACK_URI = (\/.+\/);$/m.exec(upstream)?.[1];
+    assert.ok(declared, 'could not find `const LOOPBACK_URI = …` upstream — the anchor moved, update this detector');
+    assert.equal(
+      LOOPBACK_URI.toString(),
+      declared,
+      'LOOPBACK_URI has drifted from auth-backend.ts. Narrower reds a correct pipeline and pushes people to set the destructive opt-out; wider passes a URI the runtime guard refuses. Copy it verbatim.',
+    );
+  });
+});
+
+describe('E2E remote-DB opt-out rule — GitHub', () => {
+  // NOT a symmetry exercise. `app-test` runs inside `container:`, where a service
+  // container is reachable only by alias — as non-loopback as GitLab. The rule
+  // lived in the GitLab loop for exactly one commit, during which the checker
+  // reported `ok — N rule(s) hold` over a GitHub pipeline carrying the very defect
+  // it had just been written to catch.
+  const NEEDLE = 'E2E data reset is permitted';
+  const ghJob = (env) =>
+    `name: Test\non:\n  pull_request:\njobs:\n  app-test:\n    runs-on: ubuntu-latest\n    container:\n      image: mcr.microsoft.com/playwright:v1.62.1-noble\n    services:\n      mongo:\n        image: mongo:7\n    env:\n${env}    steps:\n      - run: pnpm exec playwright test\n`;
+
+  it('FIRES on an aliased database with no opt-out', () => {
+    const res = run({ github: { 'test.yml': ghJob('      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n') } });
+    assert.ok(armed(res, NEEDLE), 'the GitHub loop must evaluate this rule at all');
+    assert.ok(failed(res, NEEDLE), 'a container job addressing mongo by alias needs the opt-out');
+  });
+
+  it('passes once the opt-out is granted', () => {
+    const env = "      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n      E2E_ALLOW_REMOTE_DB: 'true'\n";
+    const res = run({ github: { 'test.yml': ghJob(env) } });
+    assert.ok(armed(res, NEEDLE));
+    assert.ok(!failed(res, NEEDLE));
+  });
+
+  // `${{ matrix.shard }}` contains spaces. A value regex stopping at the first
+  // one truncates the URI to `…app-ci-${{` in every message the rule prints.
+  it('reads a value containing `${{ }}` whole', () => {
+    const res = run({ github: { 'test.yml': ghJob('      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n') } });
+    const problem = res.problems.find((p) => p.includes(NEEDLE));
+    assert.ok(problem?.includes('matrix.shard }}'), `URI was truncated in: ${problem}`);
+  });
+
+  // GitHub's answer to GitLab's global `variables:`. The slice that finds it must
+  // stop at `jobs:`, or a JOB's own `env:` is mistaken for the workflow's.
+  it('honours a workflow-level env block', () => {
+    const gh = ghJob('      MONGO_URI: mongodb://mongo:27017/app-ci\n').replace(
+      '\njobs:',
+      "\nenv:\n  E2E_ALLOW_REMOTE_DB: 'true'\njobs:",
+    );
+    const res = run({ github: { 'test.yml': gh } });
+    assert.ok(armed(res, NEEDLE), 'rule must still arm');
+    assert.ok(!failed(res, NEEDLE), 'a workflow-level opt-out reaches every job');
   });
 });

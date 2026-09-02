@@ -258,6 +258,21 @@ app:test:
     # interfere in shared collections (users, session, BetterAuth jwks).
     NSC__MONGOOSE__URI: "mongodb://mongo:27017/app-ci-$CI_NODE_INDEX"
     MONGO_URI: "mongodb://mongo:27017/app-ci-$CI_NODE_INDEX"
+    # The E2E auth helpers refuse to wipe test data unless the database is on
+    # loopback (`assertSafeToDelete`, nuxt-base-starter →
+    # nuxt-base-template/tests/e2e/helpers/auth-backend.ts; in a generated project:
+    # projects/app/tests/e2e/helpers/auth-backend.ts) — a guard against a stray run
+    # emptying a real database. Here the host is `mongo`, the per-job SERVICE
+    # CONTAINER above, which is thrown away with the job and is exactly the case
+    # the guard's opt-out exists for. Without this the guard fires and every spec
+    # calling `resetTestData` fails, while the same suite passes locally against
+    # 127.0.0.1 — the contradiction is invisible in either repo alone, because the
+    # URI is set here and the guard lives in the template.
+    #
+    # Note it is `FF_NETWORK_PER_BUILD` above that MAKES this necessary: with a
+    # per-build network the service is addressable only as `mongo`, so following
+    # that rule is what turns the URI non-loopback. The two rules are one decision.
+    E2E_ALLOW_REMOTE_DB: "true"
     API_URL: "http://localhost:3000"
     # PLAYWRIGHT=true relaxes rate-limiting and disables the Better-Auth
     # user-cache so freshly-promoted admin users are recognised immediately.

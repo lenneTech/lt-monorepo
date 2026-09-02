@@ -60,3 +60,28 @@ See [[project-template-and-deploy-stack]] for repo scoping.
   **How to apply:** when any `scripts/check-*.mjs` gains a "nothing to compare here" branch, hold it
   to that contract — stderr + WARN + no "ok"/"all checks passed" tail — and require a fixture test in
   `guard-scripts.test.mjs` in BOTH directions (real repo passes, broken fixture fails).
+
+- **The E2E delete guard's loopback definition lives in the FRONTEND template, not here** —
+  `assertSafeToDelete` + `const LOOPBACK_URI` in the sibling `nuxt-base-starter` checkout,
+  `nuxt-base-template/tests/e2e/helpers/auth-backend.ts` (opt-out `E2E_ALLOW_REMOTE_DB=true`).
+  That file is the source of truth; this repo only sets the env var, and
+  `scripts/check-ci-consistency.mjs` keeps a verbatim mirror as `export const LOOPBACK_URI`
+  because at the moment the checker runs here `projects/` is empty and there is nothing to
+  import. Docs: `nuxt-base-template/docs/e2e-auth.md`.
+
+  **No longer a manual re-verification (since 3.11.0):** `check-ci-consistency.test.mjs` →
+  `describe('LOOPBACK_URI drift detector')` reads the sibling checkout and compares the regex
+  sources character for character. It reports SKIPPED — never green — when the sibling is
+  absent, and `LT_DRIFT_STRICT=1` turns absence into a hard failure for release runs. So: do
+  not hand-compare the two regexes; check that the detector RAN (`skipped 0`) and, if you
+  changed the upstream declaration's shape, that its anchor `const LOOPBACK_URI = …` still
+  parses — the detector asserts the anchor was found precisely so a rename upstream cannot
+  become silent green here.
+
+- **The guard's `MONGO_URI` is a local const, not the env var it names.** `auth-backend.ts:99`
+  resolves `process.env.NSC__MONGOOSE__URI || process.env.MONGO_URI || <loopback default>` into
+  a const called `MONGO_URI`, and the refusal message on :135 prints that const's NAME. Reading
+  the message as "the guard reads $MONGO_URI" is wrong and has already cost one session a wrong
+  conclusion. `NSC__MONGOOSE__URI` is the canonical lt spelling — nest-server does not read
+  `MONGO_URI` at all — so a CI rule keying only on `MONGO_URI:` fails to ARM in the spelling the
+  stack actually uses.

@@ -39,12 +39,32 @@
  *      as pod sidecars and Shell executors have no service containers at all, so
  *      the flag is a REQUEST that a runner may ignore (it also loses to a
  *      `network_mode` in config.toml). See the rule name below, which says so.
+ *   7. A `pnpm run <script>` the target package does not define — see the rule's
+ *      own docblock at `checkScripts`. Every other rule checks the SHAPE of a
+ *      command; this one checks that the command is real.
+ *   8. An E2E job pointing at a NON-loopback database without
+ *      `E2E_ALLOW_REMOTE_DB: "true"` — or carrying that flag while pointing
+ *      somewhere the job does not own. `assertSafeToDelete` (nuxt-base-starter →
+ *      nuxt-base-template/tests/e2e/helpers/auth-backend.ts) refuses to reset
+ *      test data unless the URI is loopback or the flag opts out, so rule 6's
+ *      mandate — address the service by alias, not on 127.0.0.1 — is itself what
+ *      makes the opt-out mandatory. The two halves live in different repos and
+ *      neither can see the other: the URI is set here, the guard runs there, and
+ *      a generated project went red in CI while the same suite passed locally.
+ *      The second direction matters just as much, because this is a TEMPLATE:
+ *      once the flag ships into every generated project, a rule that only ever
+ *      demands it can never notice it being pointed at a database that outlives
+ *      the job.
  *
  * Scans BOTH pipeline definitions so GitLab and GitHub cannot drift apart — they
  * are meant to be equivalent, and deploy.yml gates its deploy on the GitHub one.
- * Rule 6 is the deliberate exception: GitHub Actions gives every job its own
+ * Rule 6 is the ONE deliberate exception: GitHub Actions gives every job its own
  * ephemeral runner and its own service containers, so it has neither the flag
- * nor the problem.
+ * nor the problem. Rule 8 explicitly is NOT an exception, and was one by accident
+ * for exactly one commit — GitHub's `app-test` runs inside a `container:`, so its
+ * service is reachable only as `mongo:27017`, which is as non-loopback as
+ * GitLab's. Scoping a rule to one pipeline is a decision that belongs in this
+ * list, with its reason; silence here reads as "nobody got round to it".
  *
  * Testability is part of the contract. This file is a guard against failures that
  * "pass" — so an untested guard has the exact defect it exists to prevent, and a
@@ -90,22 +110,48 @@ function cmdIndexOf(body, needle) {
  * and the flow sequence on the same line.
  */
 export function servicesBlock(body) {
-  // `[ \t]` and NOT `\s`: with `\s*` the greedy class eats the preceding blank
-  // lines and their newlines, so `indent.length` comes out too large and the very
-  // first service line reads as "back at job level" — the section then scans as
-  // empty. Only shows up once bodies are concatenated (an `extends:` merge), which
-  // is exactly where the rule has to work.
-  const m = /^([ \t]*)services:[ \t]*(.*)$/m.exec(body);
-  if (!m) return '';
-  const [, indent, sameLine] = m;
-  if (sameLine.trim().startsWith('[')) return sameLine;
-  const rest = body.slice(m.index).split('\n').slice(1);
+  return indentedBlock(body, 'services');
+}
+
+/**
+ * One `key:` section of a YAML body, and nothing below it.
+ *
+ * Extracted from `servicesBlock` when rule 8 needed the same scoping for
+ * `variables:` (GitLab) and `env:` (GitHub). Scoping is not cosmetic in either
+ * case: an unscoped `/MONGO_URI:/` over the whole job body also matches
+ * `- echo "MONGO_URI: mongodb://prod/live"` in a `script:` line, and the rule
+ * then reports a finding against a job that sets no such variable — the same
+ * class of false positive `servicesBlock` was written to avoid for `- mongodump`.
+ */
+function indentedBlock(body, key) {
+  // EVERY occurrence, not the first. `effectiveBody` concatenates a job with the
+  // blocks it `extends:`, so a merged body legitimately holds several `variables:`
+  // sections — the job's own and one per parent. Returning only the first meant an
+  // opt-out inherited from a template was invisible, and the rule demanded a flag
+  // the pipeline already set two blocks down. Same argument for `services:`.
   const out = [];
-  for (const line of rest) {
-    if (/^\s*$/.test(line)) continue;
-    // Back at (or above) the `services:` key itself → section is over.
-    if (line.search(/\S/) <= indent.length) break;
-    out.push(line);
+  const lines = body.split('\n');
+  // `[ \t]` and NOT `\s`: `\s` also matches newlines, so the class eats the
+  // preceding blank lines, `indent.length` comes out too large, and the very first
+  // line of the section reads as "back at job level" — the section then scans as
+  // empty. Only shows up on concatenated bodies, which is exactly where it matters.
+  const head = new RegExp(`^([ \\t]*)${key}:[ \\t]*(.*)$`);
+
+  for (let i = 0; i < lines.length; i++) {
+    const m = head.exec(lines[i]);
+    if (!m) continue;
+    const [, indent, sameLine] = m;
+    // Flow sequence on the same line: `services: [mongo:7]`.
+    if (sameLine.trim().startsWith('[')) {
+      out.push(sameLine);
+      continue;
+    }
+    for (let j = i + 1; j < lines.length; j++) {
+      if (/^\s*$/.test(lines[j])) continue;
+      // Back at (or above) the key itself → this section is over.
+      if (lines[j].search(/\S/) <= indent.length) break;
+      out.push(lines[j]);
+    }
   }
   return out.join('\n');
 }
@@ -131,6 +177,141 @@ export function declaresMongoService(servicesText) {
     /^\s*-\s*(?:name:\s*)?["']?[\w.\-/]*mongo/im.test(servicesText) ||
     /\[[^\]]*\bmongo/i.test(servicesText)
   );
+}
+
+/**
+ * Loopback URIs — a VERBATIM mirror of `LOOPBACK_URI` in the frontend template:
+ * nuxt-base-starter → nuxt-base-template/tests/e2e/helpers/auth-backend.ts:119.
+ *
+ * It is a module-local `const` there, not an export — and nothing here could
+ * import it anyway: this script's own repo keeps `projects/` EMPTY by design, so
+ * at the moment the rule runs in the template there is no checkout to import
+ * from. Mirroring is the only option the layout leaves, which is exactly why it
+ * has to be verbatim and why the test file carries a drift detector against the
+ * sibling checkout.
+ *
+ * Both drift directions have teeth, and the second is the dangerous one:
+ *   - NARROWER than the guard (what a paraphrase produced first) — the check
+ *     reds a pipeline the guard is perfectly happy with (`mongodb://localhost`,
+ *     `mongodb+srv://…`, `user:pw@127.0.0.1`). The cheapest way out for whoever
+ *     hits it is to set the destructive opt-out that was never needed, and a
+ *     guard that fails on correct config is the fastest route to being deleted.
+ *   - WIDER than the guard — `mongodb://127.0.0.1:27017,prod.example.com:27017/x`
+ *     reads as loopback to a `[:/]` terminator (it matches the port colon) while
+ *     the guard's `(:\d+)?(\/|$)` correctly refuses the seed list. Check green,
+ *     CI red, a real host sitting in the URI: the precise silently-green split
+ *     this whole file exists to close.
+ */
+export const LOOPBACK_URI = /^mongodb(\+srv)?:\/\/(?:[^@/]*@)?(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/;
+
+/**
+ * The database URI an E2E job actually hands to the test helpers.
+ *
+ * Precedence mirrors auth-backend.ts:99 —
+ * `NSC__MONGOOSE__URI || MONGO_URI || <loopback default>` — so `NSC__` wins.
+ * That is not a tie-break detail: nest-server does not read `MONGO_URI` at all
+ * (confirmed against its source — zero occurrences), because `NSC__MONGOOSE__URI`
+ * is one instance of the generic `NSC__<PATH>__<TO>__<OPTION>` config surface.
+ * The `NSC__` spelling is therefore the one an lt CI job really carries, and a
+ * rule that greps only `MONGO_URI:` does not merely miss an alias — it fails to
+ * ARM in the exact spelling the stack uses, reporting a silent skip as coverage.
+ */
+export function e2eMongoUri(varsText) {
+  for (const key of ['NSC__MONGOOSE__URI', 'MONGO_URI']) {
+    // `^\s*` anchors to a whole key, which is what keeps `NSC__MONGOOSE__URI`
+    // from also matching the `MONGO_URI` pattern on the next pass.
+    const m = new RegExp(`^\\s*${key}:\\s*(.+)$`, 'm').exec(varsText || '');
+    // `(.+)$` and not `[^"'\s]+`: the GitHub spelling is
+    // `mongodb://mongo:27017/app-ci-${{ matrix.shard }}`, and stopping at the
+    // first space truncates it to `…app-ci-${{` in every message.
+    if (m) return unquote(stripTrailingComment(m[1]).trim());
+  }
+  return undefined;
+}
+
+/**
+ * Is `key: true` set in any of these blocks (job, its `extends:` chain, global)?
+ *
+ * Third occurrence of the same shape — `FF_NETWORK_PER_BUILD` (rule 6) and both
+ * halves of rule 8 — so it stops being a coincidence and becomes a helper.
+ */
+export function varIsTrue(key, ...texts) {
+  const re = new RegExp(`^\\s*${key}:\\s*["']?true`, 'm');
+  return texts.some((t) => t && re.test(t));
+}
+
+/** Redact URI credentials exactly as the guard's own error message does. */
+const redact = (uri) => uri.replace(/\/\/[^@]*@/, '//***@');
+
+/**
+ * Does this job run the Playwright E2E suite — the only thing that calls
+ * `resetTestData`, and therefore the only subject rule 8 has?
+ *
+ * Deliberately broad, and broad in the SAFE direction: matching a job that does
+ * not reset data costs nothing, because the rule then finds no E2E database and
+ * returns. Missing one that does costs the whole failure this rule exists for.
+ * `playwright` catches the runner, the `mcr.microsoft.com/playwright` image and
+ * the `container:` built on it; `E2E_BUILT_SERVER` catches a suite wired up
+ * without either.
+ */
+function runsE2eSuite(body) {
+  return /playwright/i.test(body) || /E2E_BUILT_SERVER/.test(body);
+}
+
+/**
+ * Top-level `.gitlab-ci.yml` keys that are configuration, not jobs.
+ *
+ * `splitTopLevelBlocks` cannot tell them apart — everything at column 0 is a
+ * block — so a rule naming `gitlab/${name}` would otherwise report against
+ * `gitlab/variables` or `gitlab/stages`, blaming something no runner will ever
+ * execute while the job that actually breaks goes unmentioned.
+ */
+const NOT_A_JOB = new Set(['default', 'include', 'stages', 'variables', 'workflow']);
+
+/**
+ * Rule 8, for one job of either pipeline — see the header.
+ *
+ * Two assertions, deliberately, because the opt-out is a DESTRUCTIVE permission
+ * shipped from a TEMPLATE into every generated project. A rule that only ever
+ * demands the flag is satisfied by its mere presence forever after; repoint the
+ * URI at a shared database a year later and nothing says a word. So the second
+ * assertion asks the question the first cannot: is the thing you were granted
+ * permission to wipe actually this job's own throwaway service?
+ */
+function checkE2eResetPermission({ body, globalVars, label, rule, services, vars }) {
+  // Only jobs that actually RUN the E2E suite are subjects. Keying on the
+  // database alone was wrong in a way worth recording, because the wrong version
+  // was the intuitive one: `api:test` also declares a mongo service and also sets
+  // a non-loopback URI (`NSC__MONGOOSE__URI`, the canonical lt spelling) — but it
+  // runs the API suite, never Playwright, and so never reaches `resetTestData`.
+  // Demanding the flag there is not merely noise: whoever follows the message
+  // sets a DESTRUCTIVE opt-out in a job that resets nothing, and a guard that
+  // talks people into granting wider delete permissions than they need is
+  // working against its own purpose.
+  if (!runsE2eSuite(body)) return;
+
+  const uri = e2eMongoUri(vars) ?? e2eMongoUri(globalVars);
+  // No E2E database configured → nothing to permit. Not a silent pass: there is
+  // genuinely no subject for the rule, and the summary reports what DID arm.
+  if (!uri) return;
+
+  const optedOut = varIsTrue('E2E_ALLOW_REMOTE_DB', vars, globalVars);
+  const loopback = LOOPBACK_URI.test(uri);
+  const host = /^mongodb(?:\+srv)?:\/\/(?:[^@/]*@)?([^:/,?]+)/.exec(uri)?.[1];
+
+  rule(
+    `${label}: E2E data reset is permitted against the CI database`,
+    loopback || optedOut,
+    `points the E2E database at \`${redact(uri)}\`, which is not loopback, without setting \`E2E_ALLOW_REMOTE_DB: "true"\`. Every spec calling \`resetTestData\` then fails with "Refusing to delete test data" — while the same suite stays green locally, where the URI is 127.0.0.1. Set the flag when the database is a per-job service container (it is thrown away with the job); do NOT set it when the URI could reach a real database. An indirect value (\`$SOME_VAR\`) is treated as non-loopback by design — this script reads the YAML, not the runner's expanded environment`,
+  );
+
+  if (optedOut && !loopback) {
+    rule(
+      `${label}: the E2E reset opt-out targets a throwaway service container`,
+      Boolean(host) && services.includes(host),
+      `sets \`E2E_ALLOW_REMOTE_DB: "true"\` while the E2E database host is \`${host}\`, which this job declares no \`services:\` entry for. The flag disables the only check standing between \`resetTestData\` and a database that outlives the job. Either point the URI at a service this job owns, or drop the flag — do not grant a wipe permission for a host you cannot see being torn down`,
+    );
+  }
 }
 
 /**
@@ -454,7 +635,12 @@ export function checkCiConsistency(root = ROOT) {
       // A bare "$CI_NODE_INDEX" comparison in a non-parallel job silently evaluates
       // to the empty string. `${CI_NODE_INDEX:-1}` is the safe form and is allowed
       // either way, because it degrades to "run it" rather than "skip it".
-      if (usesNodeIndex && !isParallel) {
+      // `NOT_A_JOB` for the same reason rule 8 needs it: a pipeline that puts
+      // `$CI_NODE_INDEX` in its GLOBAL `variables:` (a per-shard database name is
+      // the obvious case) armed this rule under `gitlab/variables` — a "job" no
+      // runner executes, and one nobody can go and fix. The real parallel job that
+      // uses the value went unmentioned.
+      if (usesNodeIndex && !isParallel && !NOT_A_JOB.has(name)) {
         const guardedWithDefault = /\$\{CI_NODE_INDEX:-/.test(clean);
         rule(
           `gitlab/${name}: CI_NODE_INDEX only in a parallel job`,
@@ -479,10 +665,18 @@ export function checkCiConsistency(root = ROOT) {
         );
       }
 
-      // Rule 6 — see the header. Hidden templates (`.foo`) are skipped as blocks in
-      // their own right: they never run, and they are already covered through every
-      // job that extends them, where the message can name a job that actually exists.
-      if (!name.startsWith('.')) {
+      // Rules 6 and 8 — see the header. Hidden templates (`.foo`) are skipped as
+      // blocks in their own right: they never run, and they are already covered
+      // through every job that extends them, where the message can name a job that
+      // actually exists.
+      //
+      // `NOT_A_JOB` is the same argument for the other kind of non-job. A pipeline
+      // that sets its database in the GLOBAL `variables:` block used to arm rule 8
+      // under the pseudo-job name `gitlab/variables` — a "job" nobody can go and
+      // look at — while the real job that inherits the URI went unchecked and
+      // unnamed. Now the block is skipped as a subject and reaches every job as
+      // `globalVars` instead, which is where it belongs.
+      if (!name.startsWith('.') && !NOT_A_JOB.has(name)) {
         const merged = stripComments(effectiveBody(jobs, name));
         if (declaresMongoService(servicesBlock(merged))) {
           rule(
@@ -492,6 +686,24 @@ export function checkCiConsistency(root = ROOT) {
             'declares a `mongo` service but no `FF_NETWORK_PER_BUILD: "true"` (neither on the job, on a block it extends, nor in the global `variables:`). Without it the runner keeps the service on the shared default bridge in the deprecated `--link` mode: every container on that host can reach an unauthenticated mongo, and when alias resolution goes, every call waits out MongoDB\'s 30 s server-selection timeout while the log blames the tests. NOTE when adding it: with a per-build network the service is no longer reachable on `127.0.0.1` — address it by its alias (`mongodb://mongo:27017/...`), or this fix breaks a currently-green job',
           );
         }
+
+        // Rule 8 — see the header. The two halves of the contradiction sit in
+        // this very file: the rule above REQUIRES per-build networking, and its
+        // own note says the service is then reachable only by alias, never on
+        // 127.0.0.1. Following rule 6 is therefore what makes the URI
+        // non-loopback and the opt-out mandatory.
+        //
+        // `merged` (own body + `extends:` chain) and not `clean`: a job that
+        // inherits its database from a hidden template must be blamed by ITS
+        // name, not the template's — same reasoning as rule 6 one block up.
+        checkE2eResetPermission({
+          body: merged,
+          globalVars,
+          label: `gitlab/${name}`,
+          rule,
+          services: servicesBlock(merged),
+          vars: indentedBlock(merged, 'variables'),
+        });
       }
 
       if (/start:e2e:dist/.test(clean)) {
@@ -524,6 +736,12 @@ export function checkCiConsistency(root = ROOT) {
     for (const file of readdirSync(ghDir).filter((f) => /\.ya?ml$/.test(f))) {
       const text = readFileSync(join(ghDir, file), 'utf8');
       const jobs = splitGithubJobs(text);
+      // GitHub's answer to GitLab's global `variables:`. Everything before
+      // `jobs:` is workflow scope, and a workflow-level `env:` reaches every job
+      // — so rule 8 has to see it, exactly as it sees `globalVars` on the other
+      // side. Slicing first keeps a JOB's own `env:` from being mistaken for it.
+      const jobsAt = text.search(/^jobs:/m);
+      const workflowEnv = jobsAt > 0 ? indentedBlock(stripComments(text.slice(0, jobsAt)), 'env') : '';
 
       for (const [name, body] of Object.entries(jobs)) {
         if (/audit/.test(name)) {
@@ -552,6 +770,30 @@ export function checkCiConsistency(root = ROOT) {
             '`start:e2e:dist` runs no migrations; without `migrate:up` before it the dependent tests skip themselves and the suite reports a green nothing',
           );
         }
+
+        // Rule 8 on the GitHub side too — NOT a mirror added for symmetry's sake.
+        // `app-test` runs inside `container: mcr.microsoft.com/playwright`, and a
+        // service container is reachable from inside a job container only by its
+        // alias, never on 127.0.0.1: the URI is `mongodb://mongo:27017/…`, as
+        // non-loopback as GitLab's. deploy.yml calls this workflow and gates
+        // `build-push` on it (`needs: [guard, test]`), so the same missing flag
+        // that reds two shards also stops the deploy.
+        //
+        // Worth recording why the upstream starter never hit this: it runs
+        // `runs-on: ubuntu-latest` with NO `container:`, so GitHub maps the
+        // service port onto the runner's own localhost and 127.0.0.1 is simply
+        // the correct address there. Its loopback URI is a consequence of the job
+        // shape, not an avoidance of the guard — which is why "just use
+        // 127.0.0.1 like they do" is not available to us.
+        const ghClean = stripComments(body);
+        checkE2eResetPermission({
+          body: ghClean,
+          globalVars: workflowEnv,
+          label: `github/${file}/${name}`,
+          rule,
+          services: indentedBlock(ghClean, 'services'),
+          vars: indentedBlock(ghClean, 'env'),
+        });
 
         checkScripts(`github/${file}/${name}`, body);
       }

@@ -1,0 +1,1 @@
+- [CI guard documentation contract](project_ci-guard-doc-contract.md) — a new check-ci-consistency rule must be mirrored in the script header, CLAUDE.md, README and a migration guide
