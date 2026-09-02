@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.11.0](https://github.com/lenneTech/lt-monorepo/compare/v3.10.0...v3.11.0) (2026-09-02)
+
+### Features
+
+* **check:** guard the E2E data-reset permission in both pipelines ([d39f5eb](https://github.com/lenneTech/lt-monorepo/commit/d39f5eb88c2993a5d37a95e49b0cd3d43520415c))
 ## [3.10.0](https://github.com/lenneTech/lt-monorepo/compare/v3.9.8...v3.10.0) (2026-08-23)
 
 ### Features
