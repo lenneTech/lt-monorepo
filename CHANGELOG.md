@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.12.0](https://github.com/lenneTech/lt-monorepo/compare/v3.11.0...v3.12.0) (2026-09-04)
+
+### Features
+
+* **check:** stop reporting success for checks that never ran ([d8450a5](https://github.com/lenneTech/lt-monorepo/commit/d8450a5ca0beeb72d65d7af9230a35a91bbe298b))
 ## [3.11.0](https://github.com/lenneTech/lt-monorepo/compare/v3.10.0...v3.11.0) (2026-09-02)
 
 ### Features
