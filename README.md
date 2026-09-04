@@ -111,6 +111,20 @@ pnpm run clean       # drop the sub-projects' build dirs
 `pnpm run check` is the single source of truth for "is this runnable". A non-zero
 exit means it failed — there is no partial-success state.
 
+**`check:peers`** (`pnpm peers check`, a pnpm 11 builtin) runs right after the
+audit. It reads the lockfile and exits non-zero on unmet or missing peer
+dependencies, which is a different question from the one `pnpm audit` asks: the
+audit asks whether the tree contains a known advisory, this asks whether the tree
+is internally consistent with what its packages declare they need. It earns its
+place here because `pnpm-workspace.yaml` sets `autoInstallPeers: true` — pnpm
+fills a missing peer silently, and an unsatisfiable constraint would otherwise
+surface only at runtime, possibly resolved differently on the next install. When
+it reds, declare the peer as a direct dependency of the package that needs it, or
+pin it via `overrides:` in `pnpm-workspace.yaml`. Do not drop the step. It is
+distinct from `check:workspace`, which asserts that api and app agree on the
+*same* versions of the wire-critical packages; this one asserts every declared
+peer is satisfied at all.
+
 **Why there is a `.nuxt-check/` directory.** Nuxt writes its generated types,
 including `tsconfig.json`, into its build dir. With one shared `.nuxt/`, a check
 running next to a parked `nuxt dev` rewrote that file underneath the dev server,
@@ -160,6 +174,16 @@ shared default bridge in the deprecated `--link` mode — an unauthenticated
 surfaces as `getaddrinfo ENOTFOUND mongo` behind MongoDB's 30 s server-selection
 timeout, once per call. The rule is GitLab-only by design: GitHub gives every job
 its own ephemeral runner and its own service containers.
+
+It also asserts that every script the pipelines call is one the target package
+really defines. The target is resolved from a `cd`, from `-C`/`--dir`, or from
+`pnpm --filter=<package-name>` via the `packages:` globs in
+`pnpm-workspace.yaml`. A `--filter` that names a package the workspace does not
+define is reported as a failure: pnpm matches nothing and **exits 0**, so the
+step silently does not run — that is how a stale image once shipped. `pnpm -r`
+and the set-valued filter forms (`api...`, `[origin/main]`, `!api`) have no
+single target and are listed as *skipped* rather than passed, which in this
+template is their normal state until `lt fullstack init` fills `projects/`.
 
 A further rule spans two repositories, which is why nothing caught it for a
 while. The E2E helpers refuse to reset test data against a database that is not

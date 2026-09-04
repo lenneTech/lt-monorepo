@@ -17,7 +17,7 @@
 // gets asserted in its passing state is indistinguishable from a rule that is
 // never evaluated at all.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,11 +68,17 @@ function fixture({ github, gitlab, packages }) {
       writeFileSync(join(root, '.github/workflows', file), body);
     }
   }
+  // A workspace file, so `--filter=<name>` can be resolved to a directory. Written
+  // unconditionally: the resolver reads the globs from here, and a fixture without it
+  // would silently exercise the unresolvable path in every case.
+  writeFileSync(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'projects/*'\n");
   for (const [dir, scripts] of Object.entries(packages ?? {})) {
     mkdirSync(join(root, dir), { recursive: true });
+    // The package NAME is the directory's last segment, so a fixture can be addressed by
+    // `--filter` the way a real pipeline addresses a real workspace member.
     writeFileSync(
       join(root, dir, 'package.json'),
-      typeof scripts === 'string' ? scripts : JSON.stringify({ name: 'fixture', scripts }),
+      typeof scripts === 'string' ? scripts : JSON.stringify({ name: dir.split('/').pop(), scripts }),
     );
   }
   return root;
@@ -108,13 +114,17 @@ describe('mongo isolation rule — arming across YAML spellings (DEV-3068)', () 
     });
 
     it(`fires on ${label} when the flag is missing`, () => {
-      const res = run({ gitlab: mongoJob(service, '    NSC__MONGOOSE__URI: "mongodb://mongo:27017/x"\n') });
+      const res = run({
+        gitlab: mongoJob(service, '    NSC__MONGOOSE__URI: "mongodb://mongo:27017/x"\n'),
+      });
       assert.ok(failed(res, 'mongo service'), `rule did not fire on: ${label}`);
     });
   }
 
   it('arms on the flow sequence', () => {
-    const res = run({ gitlab: 'api:test:\n  stage: test\n  services: [mongo:7]\n  variables:\n    X: "1"\n' });
+    const res = run({
+      gitlab: 'api:test:\n  stage: test\n  services: [mongo:7]\n  variables:\n    X: "1"\n',
+    });
     assert.ok(failed(res, 'mongo service'), 'flow-sequence service went unguarded');
   });
 
@@ -125,7 +135,9 @@ describe('mongo isolation rule — arming across YAML spellings (DEV-3068)', () 
 
   it('does not mistake a `mongodump` command for a service declaration', () => {
     // `services:` scoping — a bare /mongo/ over the job body matches script lines.
-    const res = run({ gitlab: 'backup:\n  stage: test\n  script:\n    - mongodump --uri "$URI"\n' });
+    const res = run({
+      gitlab: 'backup:\n  stage: test\n  script:\n    - mongodump --uri "$URI"\n',
+    });
     assert.equal(armed(res, 'mongo service'), false, 'a script line must not arm the service rule');
   });
 });
@@ -178,7 +190,9 @@ describe('sharding rules', () => {
 
   it('passes when --shard is wired, quoted or bare', () => {
     for (const arg of ['--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL', '--shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"']) {
-      const res = run({ gitlab: `app:test:\n  parallel: 2\n  script:\n    - pnpm exec playwright test ${arg}\n` });
+      const res = run({
+        gitlab: `app:test:\n  parallel: 2\n  script:\n    - pnpm exec playwright test ${arg}\n`,
+      });
       assert.ok(armed(res, 'parallel job passes --shard'), `rule did not arm for ${arg}`);
       assert.equal(failed(res, 'parallel job passes --shard'), false, `false positive for ${arg}`);
     }
@@ -201,7 +215,9 @@ describe('sharding rules', () => {
 
 describe('audit gate', () => {
   it('fires on allow_failure in GitLab', () => {
-    const res = run({ gitlab: 'audit:\n  stage: test\n  allow_failure: true\n  script:\n    - pnpm audit\n' });
+    const res = run({
+      gitlab: 'audit:\n  stage: test\n  allow_failure: true\n  script:\n    - pnpm audit\n',
+    });
     assert.ok(failed(res, 'audit job blocks'));
   });
 
@@ -213,7 +229,10 @@ describe('audit gate', () => {
 
   it('fires on continue-on-error in GitHub', () => {
     const res = run({
-      github: { 'test.yml': 'name: Test\non: [push]\njobs:\n  audit:\n    continue-on-error: true\n    steps:\n      - run: pnpm audit\n' },
+      github: {
+        'test.yml':
+          'name: Test\non: [push]\njobs:\n  audit:\n    continue-on-error: true\n    steps:\n      - run: pnpm audit\n',
+      },
     });
     assert.ok(failed(res, 'audit job blocks'));
   });
@@ -221,7 +240,9 @@ describe('audit gate', () => {
 
 describe('built server + migrations', () => {
   it('fires when E2E_BUILT_SERVER lacks the build artifact', () => {
-    const res = run({ gitlab: 'app:test:\n  variables:\n    E2E_BUILT_SERVER: "true"\n  script:\n    - pnpm test\n' });
+    const res = run({
+      gitlab: 'app:test:\n  variables:\n    E2E_BUILT_SERVER: "true"\n  script:\n    - pnpm test\n',
+    });
     assert.ok(failed(res, 'consumes the build artifact'));
   });
 
@@ -262,7 +283,8 @@ describe('build artifact contract', () => {
 
   it('passes when both outputs are asserted', () => {
     const res = run({
-      gitlab: 'build:\n  script:\n    - pnpm run build\n    - test -f projects/api/dist/main.js\n    - test -f projects/app/.output/server/index.mjs\n',
+      gitlab:
+        'build:\n  script:\n    - pnpm run build\n    - test -f projects/api/dist/main.js\n    - test -f projects/app/.output/server/index.mjs\n',
     });
     assert.equal(failed(res, 'artifact contract is asserted'), false);
   });
@@ -273,8 +295,7 @@ describe('script existence rule (rule 7)', () => {
   // `pnpm run start:e2e:dist` in projects/api while nest-server-starter defined
   // no such script. Rule 5 above confirmed the *ordering* of a command that did
   // not exist — the guard passed on a pipeline that could only fail.
-  const job = (script, dir) =>
-    `app:test:\n  stage: test\n  script:\n    - (cd ${dir} && pnpm run ${script})\n`;
+  const job = (script, dir) => `app:test:\n  stage: test\n  script:\n    - (cd ${dir} && pnpm run ${script})\n`;
 
   it('FIRES when a referenced sub-project script does not exist', () => {
     const res = run({
@@ -305,16 +326,28 @@ describe('script existence rule (rule 7)', () => {
     // tests green. The defect that motivated the rule (`start:e2e:dist`) was
     // referenced by BOTH pipelines, so a guard on one arm only is half a guard.
     const res = run({
-      github: { 'test.yml': 'name: test\non: push\njobs:\n  app-test:\n    steps:\n      - run: cd projects/api && pnpm run start:e2e:dist\n' },
+      github: {
+        'test.yml':
+          'name: test\non: push\njobs:\n  app-test:\n    steps:\n      - run: cd projects/api && pnpm run start:e2e:dist\n',
+      },
       packages: { 'projects/api': { build: 'nest build' } },
     });
-    assert.ok(failed(res, '`start:e2e:dist` exists in projects/api'), `expected a github/ finding; got ${JSON.stringify(res.problems)}`);
-    assert.ok(res.problems.some((p) => p.startsWith('github/')), 'the finding must be labelled github/');
+    assert.ok(
+      failed(res, '`start:e2e:dist` exists in projects/api'),
+      `expected a github/ finding; got ${JSON.stringify(res.problems)}`,
+    );
+    assert.ok(
+      res.problems.some((p) => p.startsWith('github/')),
+      'the finding must be labelled github/',
+    );
   });
 
   it('holds on the GitHub side when the script exists (positive control)', () => {
     const res = run({
-      github: { 'test.yml': 'name: test\non: push\njobs:\n  app-test:\n    steps:\n      - run: cd projects/api && pnpm run start:e2e:dist\n' },
+      github: {
+        'test.yml':
+          'name: test\non: push\njobs:\n  app-test:\n    steps:\n      - run: cd projects/api && pnpm run start:e2e:dist\n',
+      },
       packages: { 'projects/api': { 'start:e2e:dist': 'node dist/src/main.js' } },
     });
     assert.ok(armed(res, '`start:e2e:dist` exists in projects/api'));
@@ -363,20 +396,155 @@ describe('script existence rule (rule 7)', () => {
     assert.equal(res.skipped.length, 0, 'a broken file must not be filed as "not there yet"');
   });
 
-  it('does not invent a target for recursive or filtered calls', () => {
+  it('checks a filtered call once its package name resolves', () => {
+    // `pnpm --filter=<name> run <script>` is the invocation the lt pipelines are meant to
+    // use — from the workspace root, rather than `cd projects/x && pnpm run`, which can
+    // trigger a stale-deps reconcile install. Treating it as unverifiable left the rule
+    // blind on precisely the prescribed style: a pipeline could name a script that exists
+    // nowhere and this check reported success.
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter=api run nope\n',
+      packages: { 'projects/api': { build: 'nest build' } },
+    });
+
+    assert.ok(armed(res, 'exists in projects/api'), 'a resolvable filter must arm the rule');
+    assert.ok(failed(res, 'exists in projects/api'), 'and catch the script that is not there');
+  });
+
+  it('passes a filtered call that names a script the package defines', () => {
+    // The paired case. A rule that only ever fires proves nothing about the one time it
+    // stays quiet, and this one now runs against every filtered call in the pipeline.
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter=api run build\n',
+      packages: { 'projects/api': { build: 'nest build' } },
+    });
+
+    assert.ok(armed(res, 'exists in projects/api'));
+    assert.equal(failed(res, 'exists in'), false);
+  });
+
+  it('does not invent a target for a recursive call', () => {
     // `pnpm -r run build` runs wherever the script exists and exits 0 when nowhere;
     // there is no single package.json to check it against. Claiming otherwise would
     // red a correct pipeline, which is the fastest way to get a guard deleted.
     const res = run({
-      gitlab: 'build:\n  script:\n    - pnpm -r run build\n    - pnpm --filter app run test\n',
+      gitlab: 'build:\n  script:\n    - pnpm -r run build\n',
       packages: { '.': {} },
     });
     assert.equal(failed(res, 'exists in'), false);
-    assert.equal(res.skipped.length, 0);
+    assert.equal(armed(res, 'exists in'), false, 'a recursive call must not arm the rule at all');
     // Positive limb: the same fixture written as a DIRECT call must arm, so this
     // test cannot pass merely because the parser returned nothing at all.
-    const direct = run({ gitlab: 'build:\n  script:\n    - pnpm run build\n', packages: { '.': {} } });
+    const direct = run({
+      gitlab: 'build:\n  script:\n    - pnpm run build\n',
+      packages: { '.': {} },
+    });
     assert.ok(armed(direct, '`build` exists in the workspace root'), 'the rule must be capable of arming here');
+  });
+
+  it('records an unresolvable filter as SKIPPED rather than dropping it', () => {
+    // The workspace here has no members at all — this repo's own state, where `projects/`
+    // stays empty until `lt fullstack init`. Nothing is decidable, so the rule must not
+    // fire; but it must not stay silent either. A quiet skip is how a guard comes to read
+    // as "held" in the one repo that owns these CI files, which is the failure mode the
+    // direct-call path already guards against.
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter app run test\n',
+      packages: { '.': {} },
+    });
+    assert.equal(failed(res, 'exists in'), false, 'nothing is decidable here — it must not fail');
+    assert.ok(
+      res.skipped.some((s) => /`pnpm run test`/.test(s)),
+      `the skip must be visible in the report, got: ${JSON.stringify(res.skipped)}`,
+    );
+  });
+
+  it('names the real reason a filter did not resolve, not the benign one', () => {
+    // A workspace whose member exists but whose package.json does not parse is a DEFECT.
+    // Describing it with the template's benign "projects/ is empty" wording is how a real
+    // breakage comes to look like the expected state — the same trap the
+    // missing-package.json branch was already fixed for once.
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter=api run nope\n',
+      packages: { 'projects/api': '{ broken' },
+    });
+    const skip = res.skipped.find((s) => /`pnpm run nope`/.test(s));
+    assert.ok(skip, 'the skip must still be visible');
+    assert.match(skip, /no workspace member declares a package name/);
+    assert.doesNotMatch(skip, /is empty until/, 'must not blame the empty-template state');
+  });
+
+  it('fails a filter that names a package the workspace does not define', () => {
+    // The incident both pipelines carry a postmortem for: `pnpm --filter app` matched no
+    // package, exited 0, `nuxt build` silently never ran, and the image shipped a stale
+    // `.output`. Once the workspace itself resolves, this is decidable — the full
+    // name->dir map is in hand — so it is a failure, not a skip.
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter app run build\n',
+      packages: { 'projects/api': { build: 'nest build' } },
+    });
+    assert.ok(armed(res, '`--filter app` names a workspace package'), 'the rule must arm');
+    assert.ok(failed(res, '`--filter app` names a workspace package'), 'and must fail');
+  });
+
+  it('checks every --filter on a call, not only the first', () => {
+    // pnpm runs the script in EACH filtered package. Reading only the first let a missing
+    // script in the second through while the guard reported success.
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter api --filter app run build\n',
+      packages: {
+        'projects/api': { build: 'nest build' },
+        'projects/app': { generate: 'nuxt generate' },
+      },
+    });
+    assert.ok(failed(res, 'exists in projects/app'), 'the second filter must be checked too');
+    assert.equal(failed(res, 'exists in projects/api'), false, 'the first one is fine');
+  });
+
+  it('leaves `--filter-prod` and other --filter* flags unresolved instead of blaming the root', () => {
+    // `--filter-prod` is a real pnpm flag. An anchored `--filter[= ]` match alone does not
+    // match it, so the call fell through to the `direct` branch and was attributed to the
+    // workspace root — inventing a finding on a correct pipeline.
+    assert.deepEqual(scriptInvocations('- pnpm --filter-prod=api run build\n')[0], {
+      kind: 'filtered',
+      script: 'build',
+    });
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter-prod=api run build\n',
+      packages: { '.': { check: 'x' } },
+    });
+    assert.equal(failed(res, 'exists in the workspace root'), false, 'must not be blamed on the root');
+  });
+
+  it('resolves a filter by package NAME, not by directory basename', () => {
+    // Every other fixture names its package after its directory, so a resolver that simply
+    // guessed `projects/<filter>` would pass those identically. A scoped name is what
+    // actually pins resolution to package.json.
+    const res = run({
+      gitlab: 'build:\n  script:\n    - pnpm --filter=@acme/api run nope\n',
+      packages: { 'projects/api': '{"name":"@acme/api","scripts":{"build":"nest build"}}' },
+    });
+    assert.ok(armed(res, 'exists in projects/api'), 'a scoped name must resolve to its directory');
+    assert.ok(failed(res, 'exists in projects/api'));
+  });
+
+  it('counts a symlinked workspace member', () => {
+    // `lt fullstack init --api-link` / `--frontend-link` symlink `projects/api` and
+    // `projects/app` at the developer's own checkout. `Dirent.isDirectory()` reflects an
+    // lstat and is FALSE for a symlink, so filtering on it alone made every link-mode
+    // workspace resolve to zero packages and the rule went silently blind.
+    const root = fixture({
+      gitlab: 'build:\n  script:\n    - pnpm --filter=api run nope\n',
+      packages: {},
+    });
+    mkdirSync(join(root, 'linked-api'), { recursive: true });
+    writeFileSync(join(root, 'linked-api/package.json'), '{"name":"api","scripts":{"build":"x"}}');
+    mkdirSync(join(root, 'projects'), { recursive: true });
+    symlinkSync('../linked-api', join(root, 'projects/api'), 'dir');
+
+    const res = checkCiConsistency(root);
+    assert.ok(armed(res, 'exists in projects/api'), 'a symlinked member must still resolve');
+    assert.ok(failed(res, 'exists in projects/api'));
   });
 });
 
@@ -414,7 +582,9 @@ describe('scriptInvocations parsing', () => {
   });
 
   it('resets the carried cd at the next mapping key', () => {
-    const calls = scriptInvocations('  script: |\n    cd projects/api\n    pnpm run build\n  after_script:\n    - pnpm run lint\n');
+    const calls = scriptInvocations(
+      '  script: |\n    cd projects/api\n    pnpm run build\n  after_script:\n    - pnpm run lint\n',
+    );
     assert.deepEqual(calls[0], { dir: 'projects/api', kind: 'direct', script: 'build' });
     assert.deepEqual(calls[1], { dir: '.', kind: 'direct', script: 'lint' });
   });
@@ -422,8 +592,16 @@ describe('scriptInvocations parsing', () => {
   it("honours pnpm's own directory flags instead of discarding them", () => {
     // `-C` / `--dir` used to be swallowed by the flag group, so the call was
     // attributed to the root — a FALSE POSITIVE that reds a correct pipeline.
-    for (const form of ['pnpm -C projects/api run build', 'pnpm --dir projects/api run build', 'pnpm --dir=projects/api run build']) {
-      assert.deepEqual(scriptInvocations(`    - ${form}\n`), [{ dir: 'projects/api', kind: 'direct', script: 'build' }], form);
+    for (const form of [
+      'pnpm -C projects/api run build',
+      'pnpm --dir projects/api run build',
+      'pnpm --dir=projects/api run build',
+    ]) {
+      assert.deepEqual(
+        scriptInvocations(`    - ${form}\n`),
+        [{ dir: 'projects/api', kind: 'direct', script: 'build' }],
+        form,
+      );
     }
   });
 
@@ -444,15 +622,27 @@ describe('scriptInvocations parsing', () => {
   it('recognises the `pnpm <script>` shorthand but not pnpm subcommands', () => {
     // Same ERR_PNPM_NO_SCRIPT, so it needs the same coverage. `pnpm install`
     // must not be read as a script called "install".
-    assert.deepEqual(scriptInvocations('    - pnpm start:e2e:dist\n')[0], { dir: '.', kind: 'direct', script: 'start:e2e:dist' });
+    assert.deepEqual(scriptInvocations('    - pnpm start:e2e:dist\n')[0], {
+      dir: '.',
+      kind: 'direct',
+      script: 'start:e2e:dist',
+    });
     assert.deepEqual(scriptInvocations('    - pnpm install\n'), []);
     assert.deepEqual(scriptInvocations('    - pnpm exec playwright test\n'), []);
     // `pnpm test` / `pnpm start` DO run the script of that name.
-    assert.deepEqual(scriptInvocations('    - pnpm test\n')[0], { dir: '.', kind: 'direct', script: 'test' });
+    assert.deepEqual(scriptInvocations('    - pnpm test\n')[0], {
+      dir: '.',
+      kind: 'direct',
+      script: 'test',
+    });
   });
 
   it('matches `npm run` too, but gives npm no shorthand', () => {
-    assert.deepEqual(scriptInvocations('    - npm run build\n')[0], { dir: '.', kind: 'direct', script: 'build' });
+    assert.deepEqual(scriptInvocations('    - npm run build\n')[0], {
+      dir: '.',
+      kind: 'direct',
+      script: 'build',
+    });
     assert.deepEqual(scriptInvocations('    - npm ci\n'), []);
   });
 
@@ -474,7 +664,11 @@ describe('scriptInvocations parsing', () => {
   });
 
   it('accepts the --filter=value form as well as the spaced one', () => {
-    assert.deepEqual(scriptInvocations('- pnpm --filter=app run test\n')[0], { kind: 'filtered', script: 'test' });
+    assert.deepEqual(scriptInvocations('- pnpm --filter=app run test\n')[0], {
+      filter: 'app',
+      kind: 'filtered',
+      script: 'test',
+    });
   });
 
   it('reads the flags of the run call, not of a command chained before it', () => {
@@ -488,8 +682,15 @@ describe('scriptInvocations parsing', () => {
   });
 
   it('classifies recursive and filtered calls separately', () => {
-    assert.deepEqual(scriptInvocations('- pnpm -r run build\n')[0], { kind: 'recursive', script: 'build' });
-    assert.deepEqual(scriptInvocations('- pnpm --filter app run test\n')[0], { kind: 'filtered', script: 'test' });
+    assert.deepEqual(scriptInvocations('- pnpm -r run build\n')[0], {
+      kind: 'recursive',
+      script: 'build',
+    });
+    assert.deepEqual(scriptInvocations('- pnpm --filter app run test\n')[0], {
+      filter: 'app',
+      kind: 'filtered',
+      script: 'test',
+    });
   });
 
   it('packageScripts distinguishes missing from unreadable', () => {
@@ -507,7 +708,7 @@ describe('no-op protection', () => {
     assert.equal(res.problems.length, 0);
   });
 
-  it('this repo\'s own pipelines satisfy every rule', () => {
+  it("this repo's own pipelines satisfy every rule", () => {
     // The regression guard: whatever else changes, the shipped config stays green
     // AND keeps arming a meaningful number of rules.
     const res = checkCiConsistency();
@@ -527,7 +728,11 @@ describe('no-op protection', () => {
     if (populated) {
       // A generated project: every sub-project call resolves, so the rule must
       // ARM on them — this is where it does its real work.
-      assert.equal(res.skipped.length, 0, `sub-projects exist, nothing should be skipped; got ${JSON.stringify(res.skipped)}`);
+      assert.equal(
+        res.skipped.length,
+        0,
+        `sub-projects exist, nothing should be skipped; got ${JSON.stringify(res.skipped)}`,
+      );
       assert.ok(
         armed(res, 'exists in projects/api') || armed(res, 'exists in projects/app'),
         'with the sub-projects present the script-existence rule must actually run',
@@ -535,10 +740,22 @@ describe('no-op protection', () => {
     } else {
       // The template: `projects/` is empty by design, so the three sub-project
       // calls in each pipeline must be REPORTED as skips rather than swallowed.
-      assert.ok(res.skipped.length >= 6, `expected the sub-project calls to be reported as skips; got ${res.skipped.length}`);
-      assert.ok(res.skipped.some((sk) => sk.startsWith('gitlab/')), 'gitlab skips must be reported');
-      assert.ok(res.skipped.some((sk) => sk.startsWith('github/')), 'github skips must be reported');
-      assert.ok(res.skipped.every((sk) => /no package.json at \//.test(sk)), 'a skip must name the path it observed');
+      assert.ok(
+        res.skipped.length >= 6,
+        `expected the sub-project calls to be reported as skips; got ${res.skipped.length}`,
+      );
+      assert.ok(
+        res.skipped.some((sk) => sk.startsWith('gitlab/')),
+        'gitlab skips must be reported',
+      );
+      assert.ok(
+        res.skipped.some((sk) => sk.startsWith('github/')),
+        'github skips must be reported',
+      );
+      assert.ok(
+        res.skipped.every((sk) => /no package.json at \//.test(sk)),
+        'a skip must name the path it observed',
+      );
     }
   });
 });
@@ -550,7 +767,6 @@ describe('helpers', () => {
     const jobs = splitGithubJobs('jobs:\n  build:\n    steps:\n      - run: pnpm run build\n');
     assert.deepEqual(Object.keys(jobs), ['build']);
   });
-
 
   it('servicesBlock stops at the next job-level key', () => {
     const body = '  services:\n    - name: mongo:7\n  variables:\n    NOT_A_SERVICE: mongo\n';
@@ -618,7 +834,10 @@ describe('E2E remote-DB opt-out rule', () => {
     it(`treats \`${uri}\` as loopback, exactly as the runtime guard does`, () => {
       const res = run({ gitlab: jobWith(uri) });
       assert.ok(armed(res, NEEDLE), `rule must arm for ${uri}`);
-      assert.ok(!failed(res, NEEDLE), `${uri} is loopback to auth-backend.ts — demanding the opt-out here is a false positive`);
+      assert.ok(
+        !failed(res, NEEDLE),
+        `${uri} is loopback to auth-backend.ts — demanding the opt-out here is a false positive`,
+      );
     });
   }
 
@@ -627,7 +846,9 @@ describe('E2E remote-DB opt-out rule', () => {
   // port colon waves it through while the runtime guard refuses it — check green,
   // CI red, `prod.example.com` in the URI.
   it('FIRES on a replica-set seed list that merely starts at loopback', () => {
-    const res = run({ gitlab: jobWith('mongodb://127.0.0.1:27017,prod.example.com:27017/app?replicaSet=rs0') });
+    const res = run({
+      gitlab: jobWith('mongodb://127.0.0.1:27017,prod.example.com:27017/app?replicaSet=rs0'),
+    });
     assert.ok(failed(res, NEEDLE), 'a seed list reaching a real host must not pass as loopback');
   });
 
@@ -714,8 +935,8 @@ describe('E2E remote-DB opt-out rule', () => {
     assert.ok(failed(run({ gitlab }), TARGET), 'a granted wipe permission must name a service the job owns');
   });
 
-  it('accepts the opt-out when the host IS the job\'s own service alias', () => {
-    assert.ok(!failed(run({ gitlab: jobWith(ALIASED, OPT_OUT) }), TARGET), '`mongo` is this job\'s service container');
+  it("accepts the opt-out when the host IS the job's own service alias", () => {
+    assert.ok(!failed(run({ gitlab: jobWith(ALIASED, OPT_OUT) }), TARGET), "`mongo` is this job's service container");
   });
 });
 
@@ -731,12 +952,7 @@ describe('LOOPBACK_URI drift detector', () => {
   // detector that "passed" would be indistinguishable from one that ran.
   // `LT_DRIFT_STRICT=1` turns absence into a hard failure and belongs in the
   // release workflow — the one moment drift actually costs something.
-  const UPSTREAM = join(
-    ROOT_DIR,
-    '..',
-    'nuxt-base-starter',
-    'nuxt-base-template/tests/e2e/helpers/auth-backend.ts',
-  );
+  const UPSTREAM = join(ROOT_DIR, '..', 'nuxt-base-starter', 'nuxt-base-template/tests/e2e/helpers/auth-backend.ts');
   const STRICT = process.env.LT_DRIFT_STRICT === '1';
   const itDrift = existsSync(UPSTREAM) || STRICT ? it : it.skip;
 
@@ -764,13 +980,18 @@ describe('E2E remote-DB opt-out rule — GitHub', () => {
     `name: Test\non:\n  pull_request:\njobs:\n  app-test:\n    runs-on: ubuntu-latest\n    container:\n      image: mcr.microsoft.com/playwright:v1.62.1-noble\n    services:\n      mongo:\n        image: mongo:7\n    env:\n${env}    steps:\n      - run: pnpm exec playwright test\n`;
 
   it('FIRES on an aliased database with no opt-out', () => {
-    const res = run({ github: { 'test.yml': ghJob('      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n') } });
+    const res = run({
+      github: {
+        'test.yml': ghJob('      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n'),
+      },
+    });
     assert.ok(armed(res, NEEDLE), 'the GitHub loop must evaluate this rule at all');
     assert.ok(failed(res, NEEDLE), 'a container job addressing mongo by alias needs the opt-out');
   });
 
   it('passes once the opt-out is granted', () => {
-    const env = "      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n      E2E_ALLOW_REMOTE_DB: 'true'\n";
+    const env =
+      "      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n      E2E_ALLOW_REMOTE_DB: 'true'\n";
     const res = run({ github: { 'test.yml': ghJob(env) } });
     assert.ok(armed(res, NEEDLE));
     assert.ok(!failed(res, NEEDLE));
@@ -779,7 +1000,11 @@ describe('E2E remote-DB opt-out rule — GitHub', () => {
   // `${{ matrix.shard }}` contains spaces. A value regex stopping at the first
   // one truncates the URI to `…app-ci-${{` in every message the rule prints.
   it('reads a value containing `${{ }}` whole', () => {
-    const res = run({ github: { 'test.yml': ghJob('      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n') } });
+    const res = run({
+      github: {
+        'test.yml': ghJob('      MONGO_URI: mongodb://mongo:27017/app-ci-${{ matrix.shard }}\n'),
+      },
+    });
     const problem = res.problems.find((p) => p.includes(NEEDLE));
     assert.ok(problem?.includes('matrix.shard }}'), `URI was truncated in: ${problem}`);
   });

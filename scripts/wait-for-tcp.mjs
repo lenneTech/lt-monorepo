@@ -21,14 +21,14 @@
  * Node is the one interpreter guaranteed to be present in every image this pipeline
  * uses, so the probe belongs here rather than in a shell that varies per job.
  */
-import { connect } from "node:net";
+import { connect } from 'node:net';
 
 const [host, portArg, timeoutArg] = process.argv.slice(2);
 const port = Number(portArg);
 const timeoutSeconds = Number(timeoutArg ?? 120);
 
 if (!host || !Number.isInteger(port) || port <= 0) {
-  console.error("usage: node scripts/wait-for-tcp.mjs <host> <port> [timeoutSeconds]");
+  console.error('usage: node scripts/wait-for-tcp.mjs <host> <port> [timeoutSeconds]');
   process.exit(2);
 }
 
@@ -45,9 +45,9 @@ function probe() {
       socket.destroy();
       resolve(ok);
     };
-    socket.once("connect", () => done(true));
-    socket.once("error", () => done(false));
-    socket.once("timeout", () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+    socket.once('timeout', () => done(false));
   });
 }
 

@@ -44,7 +44,14 @@ function watchdog(port, command, { env = {}, onStart } = {}) {
     const child = spawn('bash', [SCRIPT, '127.0.0.1', String(port), '--', ...command], {
       // KILL_GRACE down from 5 s: the abort path is asserted here many times over,
       // and this suite runs inside `pnpm run check` on every commit.
-      env: { ...process.env, WATCHDOG_INTERVAL: '1', WATCHDOG_MISSES: '2', WATCHDOG_KILL_GRACE: '0.2', WATCHDOG_CONNECT_TIMEOUT: '1', ...env },
+      env: {
+        ...process.env,
+        WATCHDOG_INTERVAL: '1',
+        WATCHDOG_MISSES: '2',
+        WATCHDOG_KILL_GRACE: '0.2',
+        WATCHDOG_CONNECT_TIMEOUT: '1',
+        ...env,
+      },
     });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
@@ -54,7 +61,7 @@ function watchdog(port, command, { env = {}, onStart } = {}) {
   });
 }
 
-describe('mongo-watchdog — exit code passthrough (DEV-3068)', () => {
+describe('mongo-watchdog — exit code passthrough (DEV-3068)', { concurrency: true }, () => {
   it('passes a successful run through as 0', async () => {
     const { port } = await listener();
     const { code } = await watchdog(port, ['sh', '-c', 'sleep 2; exit 0']);
@@ -76,7 +83,7 @@ describe('mongo-watchdog — exit code passthrough (DEV-3068)', () => {
   });
 });
 
-describe('mongo-watchdog — service dies mid-run', () => {
+describe('mongo-watchdog — service dies mid-run', { concurrency: true }, () => {
   it('aborts fast with exit 1 instead of letting the command run to its timeout', async () => {
     const { port, stop } = await listener();
     const started = Date.now();
@@ -123,7 +130,7 @@ describe('mongo-watchdog — service dies mid-run', () => {
   });
 });
 
-describe('mongo-watchdog — service already down at start', () => {
+describe('mongo-watchdog — service already down at start', { concurrency: true }, () => {
   it('fails loudly instead of silently disabling itself', async () => {
     // Regression test for the original defect: mongo dying between the readiness
     // step and the watchdog start was misread as "this shell has no /dev/tcp",
@@ -138,7 +145,7 @@ describe('mongo-watchdog — service already down at start', () => {
   });
 });
 
-describe('mongo-watchdog — forensics hygiene', () => {
+describe('mongo-watchdog — forensics hygiene', { concurrency: true }, () => {
   it('keeps raw network dumps out of the log by default', async () => {
     const { port, stop } = await listener();
     stop();
@@ -162,7 +169,7 @@ describe('mongo-watchdog — forensics hygiene', () => {
   });
 });
 
-describe('mongo-watchdog — usage', () => {
+describe('mongo-watchdog — usage', { concurrency: true }, () => {
   it('rejects a call without a command instead of running nothing and exiting 0', async () => {
     const { code } = await new Promise((resolve) => {
       const child = spawn('bash', [SCRIPT, '127.0.0.1', '1']);

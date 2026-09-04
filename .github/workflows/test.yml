@@ -61,7 +61,20 @@ jobs:
       # npm enforces registry integrity for the tarball itself.
       - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit
+      # NOT a bare `pnpm audit` — see the GitLab audit job for the full reasoning: pnpm fails
+      # OPEN and reports a clean tree when the advisory service is unreachable, so this job went
+      # green while nothing was checked. Findings still block exactly as before.
+      - run: pnpm run check:audit
+      # Same two dependency-graph gates as the GitLab `audit` job, and for the same
+      # reason: both run in the local `check` chain, and a gate that fires only on a
+      # developer's machine is the "threshold gap" the comment above says this job
+      # exists to avoid. `check:overrides` reads the audit — an advisory on a package
+      # that already HAS an override means the fix is wired but aims too low, which is
+      # only legible next to the advisory itself. `check:peers` asks the separate
+      # question of whether the resolved tree is internally consistent, which matters
+      # because `autoInstallPeers: true` fills a missing peer silently.
+      - run: pnpm run check:overrides
+      - run: pnpm run check:peers
 
   api-test:
     runs-on: ubuntu-latest

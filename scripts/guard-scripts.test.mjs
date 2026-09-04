@@ -19,7 +19,7 @@
 // copy of the script in scripts/.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -36,6 +36,15 @@ function fixture(script, files) {
   dirs.push(root);
   mkdirSync(join(root, 'scripts'), { recursive: true });
   copyFileSync(join(SCRIPTS, script), join(root, 'scripts', script));
+  // Guards import their shared helpers from scripts/lib/. Staging only the guard itself
+  // made it die on ERR_MODULE_NOT_FOUND, and this suite asserts on a script's OUTPUT —
+  // so a crash reads as "the guard fired", which is the one thing it must never do.
+  mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
+  for (const helper of readdirSync(join(SCRIPTS, 'lib'))) {
+    if (helper.endsWith('.mjs') && !helper.endsWith('.test.mjs')) {
+      copyFileSync(join(SCRIPTS, 'lib', helper), join(root, 'scripts', 'lib', helper));
+    }
+  }
   for (const [rel, body] of Object.entries(files)) {
     const target = join(root, rel);
     mkdirSync(dirname(target), { recursive: true });
@@ -44,12 +53,60 @@ function fixture(script, files) {
   return root;
 }
 
-const runIn = (root, script) => spawnSync('node', [join(root, 'scripts', script)], { encoding: 'utf8' });
-const runReal = (script) => spawnSync('node', [join(SCRIPTS, script)], { cwd: REPO, encoding: 'utf8' });
+/**
+ * A crashed guard must never read as a guard that fired.
+ *
+ * This suite's whole contract is "the guard FIRES" — asserted through its output and exit
+ * code. A script that dies on a bad import exits non-zero and prints a stack, which passes
+ * a naive "did it complain?" check while having verified nothing. It is not hypothetical:
+ * moving shared code into `scripts/lib/` made every guard crash here, because `fixture()`
+ * staged the guard without its import.
+ *
+ * Checked centrally in the two runners, so a guard added later inherits the protection.
+ */
+function assertDidNotCrash(result, what) {
+  const out = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  const crash = /ERR_MODULE_NOT_FOUND|Cannot find module|^\s*(SyntaxError|ReferenceError|TypeError)\b/m.exec(out);
+  assert.equal(crash, null, `${what} crashed instead of reporting — this run verified nothing:\n${out.slice(0, 600)}`);
+  return result;
+}
+
+const runIn = (root, script) =>
+  assertDidNotCrash(spawnSync('node', [join(root, 'scripts', script)], { encoding: 'utf8' }), script);
+const runReal = (script) =>
+  assertDidNotCrash(spawnSync('node', [join(SCRIPTS, script)], { cwd: REPO, encoding: 'utf8' }), script);
 
 // The pin this repo actually uses, so fixtures stay realistic.
 const VALID_PIN =
   'pnpm@11.14.0+sha512.66c1ac4c7d4762d6d7dde44c7f3e5a73591ed0a0806e751d4ed32d4f004f25b2285a906b1fd8a9e3e621df3b4e2858bf88e50e0cf626bedbe977fe434a5caf85';
+
+describe('check-audit.mjs', () => {
+  const SCRIPT = 'check-audit.mjs';
+
+  // This suite's contract is "the guard FIRES". For this one the first question is smaller and was
+  // the one that actually bit: does it still START? It runs ONLY in CI — `pnpm run check` never
+  // calls it — so a broken import here passes a fully green local check and fails first in the
+  // pipeline, on the job that gates the deploy. That happened: extracting the decision into
+  // scripts/lib/ left the import behind, `pnpm run check` reported 258 tests green, and the gate
+  // was dead. `assertDidNotCrash` in runReal is what turns that into a test failure.
+  it('starts, resolves its imports, and reaches a verdict', () => {
+    const res = runReal(SCRIPT);
+    const out = `${res.stdout}${res.stderr}`;
+    assert.match(out, /^\[audit\]/m, `no verdict line — the gate said nothing:\n${out.slice(0, 600)}`);
+    // Exit 0 = clean or degraded; 1 = findings. Both are verdicts. Anything else is a crash that
+    // `assertDidNotCrash` did not recognise.
+    assert.ok([0, 1].includes(res.status), `unexpected exit ${res.status}:\n${out.slice(0, 600)}`);
+  });
+
+  it('is wired into both pipelines, since nothing else runs it', () => {
+    // The local chain deliberately does not call it (check.mjs wraps the audit itself), so the CI
+    // wiring IS its only caller. Losing that line would remove the gate without failing anything.
+    for (const file of ['.gitlab-ci.yml', '.github/workflows/test.yml']) {
+      const body = readFileSync(join(REPO, file), 'utf8');
+      assert.match(body, /pnpm run check:audit/, `${file} no longer runs the audit gate`);
+    }
+  });
+});
 
 describe('check-packagemanager-pin.mjs', () => {
   const SCRIPT = 'check-packagemanager-pin.mjs';
@@ -126,13 +183,19 @@ describe('check-packagemanager-pin.mjs', () => {
   });
 
   it('passes a Dockerfile that derives pnpm from the pin', () => {
-    const root = fixture(SCRIPT, { 'package.json': PKG, 'projects/api/Dockerfile': GOOD_DOCKERFILE });
+    const root = fixture(SCRIPT, {
+      'package.json': PKG,
+      'projects/api/Dockerfile': GOOD_DOCKERFILE,
+    });
     const res = runIn(root, SCRIPT);
     assert.equal(res.status, 0, `${res.stdout}${res.stderr}`);
   });
 
   it('ignores Dockerfiles vendored inside node_modules', () => {
-    const root = fixture(SCRIPT, { 'package.json': PKG, 'projects/node_modules/Dockerfile': BAD_DOCKERFILE });
+    const root = fixture(SCRIPT, {
+      'package.json': PKG,
+      'projects/node_modules/Dockerfile': BAD_DOCKERFILE,
+    });
     const res = runIn(root, SCRIPT);
     assert.equal(res.status, 0, `a dependency's Dockerfile must not red the repo:\n${res.stdout}${res.stderr}`);
   });
@@ -219,7 +282,10 @@ describe('check-playwright-image.mjs', () => {
     const root = fixture(SCRIPT, {
       '.gitlab-ci.yml': 'app:test:\n  image: mcr.microsoft.com/playwright:v1.55.0-noble\n',
       'package.json': { name: 'f' },
-      'projects/app/package.json': { devDependencies: { '@playwright/test': '1.61.1' }, name: 'app' },
+      'projects/app/package.json': {
+        devDependencies: { '@playwright/test': '1.61.1' },
+        name: 'app',
+      },
     });
     const res = runIn(root, SCRIPT);
     assert.notEqual(res.status, 0, `expected drift to be caught, got:\n${res.stdout}${res.stderr}`);
@@ -229,7 +295,10 @@ describe('check-playwright-image.mjs', () => {
     const root = fixture(SCRIPT, {
       '.gitlab-ci.yml': 'app:test:\n  image: mcr.microsoft.com/playwright:v1.61.1-noble\n',
       'package.json': { name: 'f' },
-      'projects/app/package.json': { devDependencies: { '@playwright/test': '1.61.1' }, name: 'app' },
+      'projects/app/package.json': {
+        devDependencies: { '@playwright/test': '1.61.1' },
+        name: 'app',
+      },
     });
     const res = runIn(root, SCRIPT);
     assert.equal(res.status, 0, `${res.stdout}${res.stderr}`);

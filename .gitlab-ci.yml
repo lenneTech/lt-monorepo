@@ -112,7 +112,24 @@ audit:
   stage: test
   extends: .distributed
   script:
-    - pnpm audit
+    # NOT a bare `pnpm audit`: pnpm fails OPEN. With the advisory service unreachable it
+    # exits 0 and reports a clean tree, byte-identical to a genuinely clean run — so this job
+    # went GREEN while nothing was checked, and deploy.yml gates on that. The wrapper asks the
+    # service whether it answered at all. Findings still block exactly as before.
+    - pnpm run check:audit
+    # Both of these run in the local `check` chain, so they belong here too — the note
+    # above claims this job "matches the local `pnpm run check` exactly, with no threshold
+    # gap between them", and a gate that only ever fires on a developer's machine is
+    # precisely such a gap: the regression passes the MR and reds whoever pulls next.
+    #
+    # `check:overrides` reads the audit above: an advisory on a package that ALREADY has
+    # an override is a different fact from a plain advisory — it says the fix is wired and
+    # merely aims too low — so it is reported next to the audit rather than half a chain away.
+    - pnpm run check:overrides
+    # `pnpm peers check` asks what `pnpm audit` does not: is the resolved tree internally
+    # consistent. It matters here specifically because `autoInstallPeers: true` lets pnpm
+    # fill a missing peer silently, which then lands differently on the next install.
+    - pnpm run check:peers
 
 # ======================================================================================================================
 # Tests jobs

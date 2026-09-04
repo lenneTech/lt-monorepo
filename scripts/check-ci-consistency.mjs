@@ -41,7 +41,13 @@
  *      `network_mode` in config.toml). See the rule name below, which says so.
  *   7. A `pnpm run <script>` the target package does not define — see the rule's
  *      own docblock at `checkScripts`. Every other rule checks the SHAPE of a
- *      command; this one checks that the command is real.
+ *      command; this one checks that the command is real. It covers calls whose
+ *      target is knowable: a `cd`, `-C`/`--dir`, a bare root call, and
+ *      `--filter=<package-name>` resolved through `pnpm-workspace.yaml`. It also
+ *      covers the reverse — a `--filter` naming a package the workspace does not
+ *      define, which pnpm answers by matching nothing and exiting 0, so the step
+ *      silently does not run. `-r` and the set-valued filter forms (`api...`,
+ *      `[origin/main]`, `!api`) have no single target and are recorded as SKIPPED.
  *   8. An E2E job pointing at a NON-loopback database without
  *      `E2E_ALLOW_REMOTE_DB: "true"` — or carrying that flag while pointing
  *      somewhere the job does not own. `assertSafeToDelete` (nuxt-base-starter →
@@ -77,6 +83,8 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { packageDirsByName, workspacePackageDirs } from './lib/workspace-packages.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -173,10 +181,7 @@ function indentedBlock(body, key) {
  */
 export function declaresMongoService(servicesText) {
   if (!servicesText) return false;
-  return (
-    /^\s*-\s*(?:name:\s*)?["']?[\w.\-/]*mongo/im.test(servicesText) ||
-    /\[[^\]]*\bmongo/i.test(servicesText)
-  );
+  return /^\s*-\s*(?:name:\s*)?["']?[\w.\-/]*mongo/im.test(servicesText) || /\[[^\]]*\bmongo/i.test(servicesText);
 }
 
 /**
@@ -327,13 +332,87 @@ function checkE2eResetPermission({ body, globalVars, label, rule, services, vars
  * do nothing but run the script of that name, so treating them as script
  * references is correct rather than a special case.
  */
+/**
+ * pnpm/yarn subcommands, so a bare `pnpm <word>` is not mistaken for a script name.
+ *
+ * Kept in sync with `pnpm help -a` (11.14.0). The omission that motivated this list being
+ * audited rather than appended to: `peers` was missing while `pnpm peers check` was being
+ * added to this repo's own check chains, so the parser read the invocation as
+ * `pnpm run peers` and demanded a `peers` script — a fabricated failure on a correct
+ * pipeline, in a job the E2E stage depends on via `needs:`.
+ *
+ * `test`, `start`, `t` and `c` are pnpm shortcuts too, and are deliberately NOT here:
+ * `pnpm test` really does run the `test` script, so checking that the script exists is
+ * the right behaviour and listing them would throw that coverage away.
+ */
 const PM_SUBCOMMANDS = new Set([
-  'add', 'approve-builds', 'audit', 'bin', 'config', 'create', 'dedupe', 'deploy', 'dlx', 'doctor',
-  'env', 'exec', 'fetch', 'i', 'import', 'init', 'install', 'licenses', 'link', 'list', 'ln', 'ls',
-  'outdated', 'pack', 'patch', 'patch-commit', 'patch-remove', 'prune', 'publish', 'rb', 'rebuild',
-  'remove', 'rm', 'root', 'run', 'self-update', 'server', 'setup', 'store', 'un', 'uninstall',
-  'unlink', 'up', 'update', 'why',
+  'add',
+  'approve-builds',
+  'audit',
+  'bin',
+  'cat-file',
+  'cat-index',
+  'config',
+  'create',
+  'dedupe',
+  'deploy',
+  'dlx',
+  'doctor',
+  'env',
+  'exec',
+  'fetch',
+  'find-hash',
+  'i',
+  'ignored-builds',
+  'import',
+  'init',
+  'install',
+  'install-test',
+  'it',
+  'licenses',
+  'link',
+  'list',
+  'ln',
+  'ls',
+  'outdated',
+  'pack',
+  'patch',
+  'patch-commit',
+  'patch-remove',
+  'peers',
+  'prune',
+  'publish',
+  'rb',
+  'rebuild',
+  'remove',
+  'rm',
+  'root',
+  'rt',
+  'run',
+  'runtime',
+  'self-update',
+  'server',
+  'setup',
+  'store',
+  'un',
+  'uninstall',
+  'unlink',
+  'up',
+  'update',
+  'why',
 ]);
+
+/**
+ * A `--filter` target whose directory is recoverable: a bare package name.
+ *
+ * pnpm's filter syntax also takes paths (`./projects/api`), dependent selectors
+ * (`api...`), diff ranges (`[origin/main]`) and exclusions (`!api`). Those name a SET,
+ * not a package, and are left unresolved on purpose — guessing would invent findings.
+ * The `..` / trailing-dot rejection is what actually keeps `api...` out; the character
+ * class alone admits it, because `.` is a member of `[\w.-]`.
+ */
+const PLAIN_PACKAGE_NAME = /^@?[A-Za-z0-9][\w.-]*(?:\/[\w.-]+)?$/;
+const isPlainPackageName = (target) => PLAIN_PACKAGE_NAME.test(target) && !/\.\.|\.$/.test(target);
 
 /**
  * Drop a trailing YAML comment, leaving `#` inside quotes alone.
@@ -393,6 +472,19 @@ function unquote(word) {
  *
  * Scanned left to right so a `cd` earlier on the line applies to a call later on
  * it, whether joined by `&&` or `;` — both keep the same shell.
+ *
+ * Result shape, one entry per invocation (a call with several `--filter` flags yields one
+ * entry per filter, because pnpm runs the script in each of them):
+ *
+ *   { kind: 'direct',    dir, script }    a `cd`, `-C`/`--dir`, or a plain root call
+ *   { kind: 'recursive', script }         `-r` — runs wherever it exists, no single target
+ *   { kind: 'filtered',  filter, script } `--filter`/`-F`; `filter` is the package NAME
+ *                                         when the target is a plain one, else `undefined`
+ *
+ * `filter: undefined` is the meaningful case, not a missing value: it says the target is a
+ * set-valued form (`api...`, `[origin/main]`, `!api`, a path) that names no single package,
+ * so the caller must not resolve it. A named-but-unresolvable filter is a different fact
+ * again, and the caller — not this function — decides what it means.
  */
 export function scriptInvocations(text) {
   const out = [];
@@ -445,7 +537,40 @@ export function scriptInvocations(text) {
         out.push({ kind: 'recursive', script });
         continue;
       }
-      if (/--filter/.test(flags)) {
+      // `--filter` names its target, unlike `-r`, so the directory is often recoverable
+      // and the call is then as checkable as a `cd`. The target is carried through and the
+      // caller resolves it against the workspace.
+      //
+      // Note this repo's OWN pipelines deliberately do not use `--filter`: see the
+      // postmortem in `.gitlab-ci.yml`'s turboops-build header and the twin in
+      // `.github/workflows/deploy.yml`, where `pnpm --filter app` matched no package,
+      // exited 0, and shipped an image built from a stale `.output`. They use
+      // `cd projects/x && pnpm run` instead. The rule is here for generated projects that
+      // do reach for `--filter`, and for that incident class specifically — which is why
+      // the caller treats "names a package that does not exist" as a failure rather than
+      // as something it cannot know.
+      //
+      // Every filter on the call is emitted, not just the first: `pnpm --filter api
+      // --filter app run build` runs the script in BOTH, and checking only `api` let a
+      // missing script in `app` through while reporting success.
+      const filters = [...flags.matchAll(/(?:^|\s)(?:--filter|-F)[= ]((?:"[^"]*")|(?:'[^']*')|(?:[^\s]+))/g)];
+      if (filters.length) {
+        for (const match of filters) {
+          const target = unquote(match[1]);
+          out.push({
+            filter: isPlainPackageName(target) ? target : undefined,
+            kind: 'filtered',
+            script,
+          });
+        }
+        continue;
+      }
+      // Any other `--filter*` spelling — `--filter-prod` is a real pnpm flag — still
+      // narrows the run to something this rule cannot resolve. The broad substring test
+      // this replaced caught those by accident and skipped them; an anchored match alone
+      // let them fall through to the `direct` branch below, where the call was blamed on
+      // the workspace root and reded a pipeline that was correct.
+      if (/(?:^|\s)--filter/.test(flags)) {
         out.push({ kind: 'filtered', script });
         continue;
       }
@@ -475,7 +600,10 @@ export function packageScripts(root, dir) {
   const path = join(root, dir, 'package.json');
   if (!existsSync(path)) return { kind: 'missing', path };
   try {
-    return { kind: 'ok', scripts: Object.keys(JSON.parse(readFileSync(path, 'utf8')).scripts ?? {}) };
+    return {
+      kind: 'ok',
+      scripts: Object.keys(JSON.parse(readFileSync(path, 'utf8')).scripts ?? {}),
+    };
   } catch (err) {
     return { kind: 'unreadable', path, reason: err.message };
   }
@@ -509,7 +637,7 @@ export function splitGithubJobs(text) {
   // silently skipped it and the run reported "no CI job matched any rule". A
   // guard that quietly evaluates nothing is the failure mode this file exists to
   // prevent, so match at position 0 too.
-  const jobsAt = /^jobs:/.test(text) ? 0 : text.indexOf('\njobs:');
+  const jobsAt = text.startsWith('jobs:') ? 0 : text.indexOf('\njobs:');
   if (jobsAt === -1) return out;
   let current = null;
   for (const line of text.slice(jobsAt).split('\n')) {
@@ -538,7 +666,10 @@ export function effectiveBody(jobs, name, seen = new Set()) {
   const own = jobs[name] ?? '';
   let merged = own;
   for (const m of own.matchAll(/^\s*(?:-\s*)?extends:\s*(.+)$/gm)) {
-    for (const parent of m[1].replace(/[[\]"']/g, ' ').split(/[,\s]+/).filter(Boolean)) {
+    for (const parent of m[1]
+      .replace(/[[\]"']/g, ' ')
+      .split(/[,\s]+/)
+      .filter(Boolean)) {
       merged += `\n${effectiveBody(jobs, parent, seen)}`;
     }
   }
@@ -577,8 +708,60 @@ export function checkCiConsistency(root = ROOT) {
    * repo that owns these CI files is the one where the rule cannot fire, and a
    * quiet skip would let a bad reference ship to every project generated from it.
    */
+  /**
+   * Workspace package NAME -> its directory, built once per run.
+   *
+   * Only needed for `--filter=<name>` calls: the filter names a package, the rule needs a
+   * path. Reads the globs from `pnpm-workspace.yaml` rather than assuming `projects/*`, so
+   * a workspace that adds `tools/*` is covered without touching this file.
+   */
+  const packageDirs = packageDirsByName(root);
+
   const checkScripts = (label, body) => {
-    for (const call of scriptInvocations(body)) {
+    for (let call of scriptInvocations(body)) {
+      if (call.kind === 'filtered') {
+        if (call.filter && packageDirs.has(call.filter)) {
+          // Resolved: as checkable as a `cd` into the same directory.
+          call = { dir: packageDirs.get(call.filter), kind: 'direct', script: call.script };
+        } else if (call.filter && packageDirs.size > 0) {
+          // The workspace resolved and no member carries this name. Nothing is being
+          // guessed here — the full name->dir map is in hand, so this is decidable, and
+          // it is the one filter failure this repo has already paid for twice: pnpm
+          // matches nothing, EXITS 0, and the step silently does not run. That shipped an
+          // image built from a stale `.output` and was misdiagnosed as a BuildKit cache
+          // bug for a while (see `.gitlab-ci.yml`'s turboops-build header).
+          rule(
+            `${label}: \`--filter ${call.filter}\` names a workspace package`,
+            false,
+            `no workspace package is named \`${call.filter}\` — pnpm matches nothing, exits 0, and \`${call.script}\` silently never runs (workspace defines: ${[...packageDirs.keys()].sort().join(', ')})`,
+          );
+          continue;
+        } else {
+          // Unverifiable rather than wrong, and recorded rather than dropped. Two ways to
+          // get here: the workspace itself resolved nothing — the normal state of THIS
+          // repo, where `projects/` is empty until `lt fullstack init` fills it — or the
+          // filter is one of the set-valued forms (`api...`, `[origin/main]`, `!api`, a
+          // path) that name no single package. A quiet skip is exactly how a guard comes
+          // to read as "held" in the one repo that owns these CI files, which is the
+          // reason the direct-call path below reports its own misses too.
+          // Report what was OBSERVED, not a presumed cause — the same rule the
+          // missing-package.json branch below had to learn. "projects/ is empty" is the
+          // benign template state; a workspace whose members exist but whose package.json
+          // files do not parse is a DEFECT, and describing it with the benign message is
+          // how a real breakage comes to look like the expected one.
+          const members = workspacePackageDirs(root);
+          skipped.push(
+            `${label}: \`pnpm run ${call.script}\` — ${
+              !call.filter
+                ? 'the `--filter` target does not name a single package'
+                : members.length === 0
+                  ? 'no workspace members yet (`projects/` is empty until `lt fullstack init` fills it)'
+                  : `no workspace member declares a package name (${members.join(', ')}) — check their package.json files`
+            }`,
+          );
+          continue;
+        }
+      }
       if (call.kind !== 'direct') continue;
       const target = packageScripts(root, call.dir);
       const where = call.dir === '.' ? 'the workspace root' : call.dir;
@@ -681,8 +864,7 @@ export function checkCiConsistency(root = ROOT) {
         if (declaresMongoService(servicesBlock(merged))) {
           rule(
             `gitlab/${name}: mongo service requests per-build networking (docker executor)`,
-            /FF_NETWORK_PER_BUILD:\s*["']?true/.test(merged) ||
-              /FF_NETWORK_PER_BUILD:\s*["']?true/.test(globalVars),
+            /FF_NETWORK_PER_BUILD:\s*["']?true/.test(merged) || /FF_NETWORK_PER_BUILD:\s*["']?true/.test(globalVars),
             'declares a `mongo` service but no `FF_NETWORK_PER_BUILD: "true"` (neither on the job, on a block it extends, nor in the global `variables:`). Without it the runner keeps the service on the shared default bridge in the deprecated `--link` mode: every container on that host can reach an unauthenticated mongo, and when alias resolution goes, every call waits out MongoDB\'s 30 s server-selection timeout while the log blames the tests. NOTE when adding it: with a per-build network the service is no longer reachable on `127.0.0.1` — address it by its alias (`mongodb://mongo:27017/...`), or this fix breaks a currently-green job',
           );
         }

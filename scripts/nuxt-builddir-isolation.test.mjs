@@ -156,7 +156,7 @@ describe("DEV-2720 — the runner's own package-manager steps write .nuxt-check"
     assert.deepEqual(
       leaked.map((s) => s.cmd),
       [],
-      'a package-manager command reached the step list without NUXT_BUILD_DIR — it will fire the app\'s `postinstall: nuxt prepare` against the dev build dir',
+      "a package-manager command reached the step list without NUXT_BUILD_DIR — it will fire the app's `postinstall: nuxt prepare` against the dev build dir",
     );
   });
 
@@ -211,7 +211,10 @@ describe('DEV-2720 — pinCheckBuildDir', () => {
     // legal in sh but makes the reported step unreadable.
     const once = pinCheckBuildDir('pnpm install');
     assert.equal(pinCheckBuildDir(once), once);
-    assert.equal(pinCheckBuildDir('NUXT_BUILD_DIR=.nuxt-other pnpm install'), 'NUXT_BUILD_DIR=.nuxt-other pnpm install');
+    assert.equal(
+      pinCheckBuildDir('NUXT_BUILD_DIR=.nuxt-other pnpm install'),
+      'NUXT_BUILD_DIR=.nuxt-other pnpm install',
+    );
   });
 });
 
@@ -237,7 +240,11 @@ describe('DEV-2723 — the raw chains pin their package-manager steps themselves
       for (const step of chain.split('&&').map((s) => s.trim())) {
         if (!PM_SHAPES.test(step)) continue;
         seen++;
-        assert.match(step, PINNED, `\`${name}\`: step \`${step}\` runs the package manager unpinned — started directly it fires the app's \`postinstall: nuxt prepare\` against the dev build dir`);
+        assert.match(
+          step,
+          PINNED,
+          `\`${name}\`: step \`${step}\` runs the package manager unpinned — started directly it fires the app's \`postinstall: nuxt prepare\` against the dev build dir`,
+        );
       }
     }
     assert.ok(seen > 0, 'no check chain surfaced a package-manager step — this test no longer proves anything');
@@ -253,7 +260,11 @@ describe('DEV-2723 — the raw chains pin their package-manager steps themselves
       // rather than quietly stop checking anything.
       assert.ok(cmd, `root \`${script}\` script is gone — it is what keeps the IDE's dev build dir supplied`);
       seen++;
-      assert.doesNotMatch(cmd, /NUXT_BUILD_DIR=/, `\`${script}\` must stay unpinned — it is what keeps the IDE's dev build dir supplied`);
+      assert.doesNotMatch(
+        cmd,
+        /NUXT_BUILD_DIR=/,
+        `\`${script}\` must stay unpinned — it is what keeps the IDE's dev build dir supplied`,
+      );
     }
     assert.equal(seen, 2, 'expected both `init` and `reinit` to be present');
   });
@@ -277,8 +288,16 @@ describe('DEV-2720 — the runner exposes its helpers without running', () => {
     // this runs in a child process with a hard timeout instead.
     writeFileSync(probe, `import ${JSON.stringify(pathToFileUrlish(join(HERE, 'check.mjs')))};\n`);
     const res = spawnSync(process.execPath, [probe], { encoding: 'utf8', timeout: 20_000 });
-    assert.equal(res.signal, null, `importing check.mjs did not terminate (signal ${res.signal}) — isCliEntry() no longer guards main()`);
-    assert.equal(res.status, 0, `importing check.mjs exited ${res.status}\nstdout: ${res.stdout}\nstderr: ${res.stderr}`);
+    assert.equal(
+      res.signal,
+      null,
+      `importing check.mjs did not terminate (signal ${res.signal}) — isCliEntry() no longer guards main()`,
+    );
+    assert.equal(
+      res.status,
+      0,
+      `importing check.mjs exited ${res.status}\nstdout: ${res.stdout}\nstderr: ${res.stderr}`,
+    );
     assert.equal(res.stdout.trim(), '', `importing check.mjs produced output — it started a run:\n${res.stdout}`);
   });
 

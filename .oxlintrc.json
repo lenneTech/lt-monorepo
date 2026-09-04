@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["import", "unicorn"],
+  "categories": {
+    "correctness": "warn",
+    "suspicious": "warn"
+  },
+  "env": {
+    "browser": false,
+    "node": true
+  },
+  "rules": {
+    "eqeqeq": "warn",
+    "no-console": "off"
+  },
+  "ignorePatterns": ["node_modules", "projects", ".nuxt-check"]
+}

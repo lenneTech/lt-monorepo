@@ -85,3 +85,22 @@ See [[project-template-and-deploy-stack]] for repo scoping.
   conclusion. `NSC__MONGOOSE__URI` is the canonical lt spelling — nest-server does not read
   `MONGO_URI` at all — so a CI rule keying only on `MONGO_URI:` fails to ARM in the spelling the
   stack actually uses.
+
+- **`pnpm peers check` exists in the WHOLE declared engines range** — verified by unpacking
+  `pnpm@11.0.0` and running `node package/bin/pnpm.mjs peers check --help` (prints "Commands for
+  inspecting peer dependency relationships"). So `engines.pnpm: ^11.0.0` vs `packageManager:
+  pnpm@11.14.0` is NOT a gap for this subcommand. Both pipelines install the pinned version anyway
+  (`npm install -g "$(node -p ...packageManager.split('+')[0])"` in `.distributed` / each GH job).
+  Re-verify the same way if the engines floor is ever lowered to pnpm 10.
+
+- **`readdirSync(..., { withFileTypes: true })` reports a symlinked package dir as
+  `isDirectory() === false`** — matters because `lt fullstack init --api-link/--frontend-link`
+  makes `projects/api` / `projects/app` SYMLINKS. Any workspace-scanning guard that filters on
+  `isDirectory()` silently sees an EMPTY workspace in link-mode checkouts. Re-verify with a
+  `ln -s` fixture before trusting a `packageDirs`-style resolver.
+
+- **The CI pipelines do NOT run `pnpm run check` / `check:raw`** — GitLab `lint` and GitHub `lint`
+  run the discrete steps (`check-playwright-image.mjs`, `check-ci-consistency.mjs`, `format:check`,
+  `lint`) and `audit` runs bare `pnpm audit`. So anything added ONLY to the `check:*` chains in the
+  root package.json is a LOCAL gate with no CI counterpart — check both sides when reviewing a new
+  step in those chains.

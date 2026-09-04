@@ -25,68 +25,33 @@
  *
  * Exit code: 0 when the workspace is coherent, 1 otherwise.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+import { workspacePackageDirs } from './lib/workspace-packages.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function readJson(path) {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    return JSON.parse(readFileSync(path, 'utf8'));
   } catch {
     return null;
   }
 }
 
-// Mirrors the `packages:` parsing in check.mjs — same simple value-list read.
-function workspaceGlobs() {
-  let text;
-  try {
-    text = readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8");
-  } catch {
-    return [];
-  }
-  const globs = [];
-  let inPackages = false;
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/#.*$/, "");
-    if (/^packages:\s*$/.test(line)) {
-      inPackages = true;
-      continue;
-    }
-    if (inPackages) {
-      const m = line.match(/^\s*-\s*['"]?([^'"]+?)['"]?\s*$/);
-      if (m) globs.push(m[1]);
-      else if (line.trim() && !/^\s/.test(line)) break;
-    }
-  }
-  return globs;
-}
-
-function expandGlob(glob) {
-  if (glob.endsWith("/*")) {
-    const base = glob.slice(0, -2);
-    try {
-      return readdirSync(join(ROOT, base), { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => join(base, d.name));
-    } catch {
-      return [];
-    }
-  }
-  return [glob];
-}
-
-const root = readJson(join(ROOT, "package.json"));
-const members = workspaceGlobs()
-  .flatMap(expandGlob)
-  .map((rel) => ({ pkg: readJson(join(ROOT, rel, "package.json")), rel }))
+const root = readJson(join(ROOT, 'package.json'));
+// Workspace discovery is shared — see ./lib/workspace-packages.mjs. This file used to
+// carry its own copy of the parse, annotated "mirrors check.mjs"; the mirror had already
+// stopped being one.
+const members = workspacePackageDirs(ROOT)
+  .map((rel) => ({ pkg: readJson(join(ROOT, rel, 'package.json')), rel }))
   .filter((m) => m.pkg);
 
 if (members.length === 0) {
   // The un-assembled template — nothing to compare yet. Not a failure.
-  console.log("[workspace-consistency] no workspace members yet (template state) — skipped");
+  console.log('[workspace-consistency] no workspace members yet (template state) — skipped');
   process.exit(0);
 }
 
@@ -110,12 +75,12 @@ for (const { pkg, rel } of members) {
   const clash = pkg.packageManager !== root.packageManager;
   problems.push(
     clash
-      ? `${rel} pins "${pkg.packageManager}" but the root pins "${root.packageManager ?? "nothing"}".\n`
-        + `      Corepack refuses this workspace — this is the break, not a warning.\n`
-        + `      Remove the field from ${rel}; in a workspace it belongs to the root only.`
-      : `${rel} carries "packageManager" (currently equal to the root, so nothing breaks yet).\n`
-        + `      Remove it anyway: Corepack's AUTO_PIN rewrites this field per machine, so the\n`
-        + `      two WILL drift apart and then Corepack refuses the workspace.`,
+      ? `${rel} pins "${pkg.packageManager}" but the root pins "${root.packageManager ?? 'nothing'}".\n` +
+          `      Corepack refuses this workspace — this is the break, not a warning.\n` +
+          `      Remove the field from ${rel}; in a workspace it belongs to the root only.`
+      : `${rel} carries "packageManager" (currently equal to the root, so nothing breaks yet).\n` +
+          `      Remove it anyway: Corepack's AUTO_PIN rewrites this field per machine, so the\n` +
+          `      two WILL drift apart and then Corepack refuses the workspace.`,
   );
 }
 
@@ -142,10 +107,10 @@ for (const { pkg, rel } of members) {
 //      it worse: with two versions in the tree, which one gets hoisted is not
 //      something either project controls.
 // ---------------------------------------------------------------------------
-const WIRE_CRITICAL = ["better-auth", "@better-auth/passkey", "@better-auth/core"];
+const WIRE_CRITICAL = ['better-auth', '@better-auth/passkey', '@better-auth/core'];
 
 /** The framework libraries that own the contract, and therefore declare the peer ranges. */
-const CONTRACT_OWNERS = ["@lenne.tech/nest-server", "@lenne.tech/nuxt-extensions"];
+const CONTRACT_OWNERS = ['@lenne.tech/nest-server', '@lenne.tech/nuxt-extensions'];
 
 const wireProblems = [];
 
@@ -153,7 +118,7 @@ const wireProblems = [];
 const declaredRanges = new Map(); // pkg -> [{ owner, range }]
 for (const { rel } of members) {
   for (const owner of CONTRACT_OWNERS) {
-    const ownerPkg = readJson(join(ROOT, rel, "node_modules", owner, "package.json"));
+    const ownerPkg = readJson(join(ROOT, rel, 'node_modules', owner, 'package.json'));
     if (!ownerPkg) continue;
     for (const dep of WIRE_CRITICAL) {
       const range = ownerPkg.peerDependencies?.[dep];
@@ -169,10 +134,10 @@ for (const [dep, entries] of declaredRanges) {
   const ranges = [...new Set(entries.map((e) => e.range))];
   if (ranges.length <= 1) continue;
   wireProblems.push(
-    `${dep}: the frameworks promise different ranges —\n`
-      + entries.map((e) => `        ${e.owner} says "${e.range}"`).join("\n")
-      + `\n      They are two ends of one protocol, so the ranges must be identical.\n`
-      + `      Raise them together, in both repos, in the same release.`,
+    `${dep}: the frameworks promise different ranges —\n` +
+      entries.map((e) => `        ${e.owner} says "${e.range}"`).join('\n') +
+      `\n      They are two ends of one protocol, so the ranges must be identical.\n` +
+      `      Raise them together, in both repos, in the same release.`,
   );
 }
 
@@ -180,7 +145,7 @@ for (const [dep, entries] of declaredRanges) {
 for (const dep of WIRE_CRITICAL) {
   const resolved = new Map(); // version -> [member rel]
   for (const { rel } of members) {
-    const installed = readJson(join(ROOT, rel, "node_modules", dep, "package.json"));
+    const installed = readJson(join(ROOT, rel, 'node_modules', dep, 'package.json'));
     if (!installed?.version) continue;
     if (!resolved.has(installed.version)) resolved.set(installed.version, []);
     resolved.get(installed.version).push(rel);
@@ -189,10 +154,10 @@ for (const dep of WIRE_CRITICAL) {
   if (resolved.size <= 1) continue;
 
   wireProblems.push(
-    `${dep} resolves to ${resolved.size} different versions in one workspace —\n`
-      + [...resolved].map(([v, rels]) => `        ${v}  in ${rels.join(", ")}`).join("\n")
-      + `\n      Client and server would speak different versions of the same protocol.\n`
-      + `      Pin the SAME version in every member's package.json.`,
+    `${dep} resolves to ${resolved.size} different versions in one workspace —\n` +
+      [...resolved].map(([v, rels]) => `        ${v}  in ${rels.join(', ')}`).join('\n') +
+      `\n      Client and server would speak different versions of the same protocol.\n` +
+      `      Pin the SAME version in every member's package.json.`,
   );
 }
 
@@ -213,7 +178,7 @@ for (const dep of WIRE_CRITICAL) {
   const undeclared = [];
 
   for (const { pkg, rel } of members) {
-    const installed = readJson(join(ROOT, rel, "node_modules", dep, "package.json"));
+    const installed = readJson(join(ROOT, rel, 'node_modules', dep, 'package.json'));
     if (!installed?.version) continue;
 
     const declared = pkg.dependencies?.[dep] ?? pkg.devDependencies?.[dep] ?? pkg.peerDependencies?.[dep];
@@ -223,26 +188,26 @@ for (const dep of WIRE_CRITICAL) {
   if (undeclared.length === 0) continue;
 
   wireProblems.push(
-    `${dep} is installed but declared nowhere in —\n`
-      + undeclared.map((u) => `        ${u.rel}  (pnpm resolved ${u.version} on its own)`).join("\n")
-      + `\n      With autoInstallPeers (pnpm's default), a missing peer is filled in silently from\n`
-      + `      the framework's range. It agrees today and is free to drift on the next install.\n`
-      + `      Add it to that member's package.json, pinned to the exact version.`,
+    `${dep} is installed but declared nowhere in —\n` +
+      undeclared.map((u) => `        ${u.rel}  (pnpm resolved ${u.version} on its own)`).join('\n') +
+      `\n      With autoInstallPeers (pnpm's default), a missing peer is filled in silently from\n` +
+      `      the framework's range. It agrees today and is free to drift on the next install.\n` +
+      `      Add it to that member's package.json, pinned to the exact version.`,
   );
 }
 
 if (problems.length > 0 || wireProblems.length > 0) {
-  console.error("[workspace-consistency] the assembled workspace is inconsistent:\n");
+  console.error('[workspace-consistency] the assembled workspace is inconsistent:\n');
   for (const p of problems) console.error(`  ✗ ${p}`);
   for (const p of wireProblems) console.error(`  ✗ ${p}`);
   process.exit(1);
 }
 
 const checkedWire = WIRE_CRITICAL.filter((dep) =>
-  members.some(({ rel }) => readJson(join(ROOT, rel, "node_modules", dep, "package.json"))),
+  members.some(({ rel }) => readJson(join(ROOT, rel, 'node_modules', dep, 'package.json'))),
 );
 
 console.log(
-  `[workspace-consistency] ok — ${members.length} member(s) agree with the root on packageManager (${root.packageManager ?? "unset"})`
-    + (checkedWire.length > 0 ? `, and on ${checkedWire.join(", ")}` : ""),
+  `[workspace-consistency] ok — ${members.length} member(s) agree with the root on packageManager (${root.packageManager ?? 'unset'})` +
+    (checkedWire.length > 0 ? `, and on ${checkedWire.join(', ')}` : ''),
 );

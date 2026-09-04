@@ -18,7 +18,7 @@
 // the exit code and the message as the contract.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +61,15 @@ function buildWorkspace(members) {
   writeFileSync(join(dir, 'pnpm-workspace.yaml'), "packages:\n  - 'projects/*'\n");
   mkdirSync(join(dir, 'scripts'), { recursive: true });
   copyFileSync(GUARD, join(dir, 'scripts', 'check-workspace-consistency.mjs'));
+  // The guard imports its workspace reader from scripts/lib/. Staging the guard alone
+  // made it die on ERR_MODULE_NOT_FOUND — and since these assertions match on the
+  // script's OUTPUT, a crash would read as the guard having fired.
+  mkdirSync(join(dir, 'scripts', 'lib'), { recursive: true });
+  for (const helper of readdirSync(join(HERE, 'lib'))) {
+    if (helper.endsWith('.mjs') && !helper.endsWith('.test.mjs')) {
+      copyFileSync(join(HERE, 'lib', helper), join(dir, 'scripts', 'lib', helper));
+    }
+  }
 
   for (const m of members) {
     // `declared` defaults to the installed set: the normal, correct case is a member
@@ -93,7 +102,30 @@ function runGuard(dir) {
   const r = spawnSync(process.execPath, [join(dir, 'scripts', 'check-workspace-consistency.mjs')], {
     encoding: 'utf8',
   });
-  return { out: `${r.stdout ?? ''}${r.stderr ?? ''}`, status: r.status };
+  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  assertDidNotCrash(out);
+  return { out, status: r.status };
+}
+
+/**
+ * A crashed guard must never read as a guard that spoke.
+ *
+ * Every assertion in this file matches on the script's OUTPUT, and the negative ones match
+ * on the ABSENCE of a message. A script that dies before printing anything satisfies those
+ * perfectly — so a staging mistake or a typo in an import turns the whole suite green while
+ * verifying nothing. That is not hypothetical: adding a shared helper under `scripts/lib/`
+ * did exactly this, because the fixture staged the guard without its import.
+ *
+ * Checked centrally rather than per-test, so a rule added later inherits it instead of
+ * someone having to remember.
+ */
+function assertDidNotCrash(out) {
+  const crash = /ERR_MODULE_NOT_FOUND|Cannot find module|^\s*(SyntaxError|ReferenceError|TypeError)\b/m.exec(out);
+  assert.equal(
+    crash,
+    null,
+    `the guard crashed instead of reporting — this run verified nothing:\n${out.slice(0, 600)}`,
+  );
 }
 
 /** api + app, both on the same better-auth — the shape the guard must accept. */
@@ -166,9 +198,7 @@ describe('check-workspace-consistency: wire-critical versions', () => {
   });
 
   it('stays quiet before install — no node_modules is not a drift', () => {
-    const { out, status } = runGuard(
-      buildWorkspace([{ rel: 'projects/api' }, { rel: 'projects/app' }]),
-    );
+    const { out, status } = runGuard(buildWorkspace([{ rel: 'projects/api' }, { rel: 'projects/app' }]));
     assert.equal(status, 0, out);
     // And says nothing about packages it could not see.
     assert.doesNotMatch(out, /better-auth/);
