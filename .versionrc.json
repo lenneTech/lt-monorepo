@@ -39,6 +39,10 @@
     {
       "filename": "lerna.json",
       "type": "json"
+    },
+    {
+      "filename": "scripts/check.mjs",
+      "updater": "scripts/check-wrapper-version.cjs"
     }
   ]
 }
