@@ -1,0 +1,8 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+# all files
+[*]
+end_of_line = lf
