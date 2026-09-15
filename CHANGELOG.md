@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.13.0](https://github.com/lenneTech/lt-monorepo/compare/v3.12.0...v3.13.0) (2026-09-15)
+
+### Bug Fixes
+
+* **check:** drop oxlint --fix-suggestions and version-mark the check wrapper ([#3](https://github.com/lenneTech/lt-monorepo/issues/3)) ([fc82cc9](https://github.com/lenneTech/lt-monorepo/commit/fc82cc93460df123b9527e16f4da205cd92d9751))
+
+### Chores
+
+* normalize line endings for Windows checkouts ([#2](https://github.com/lenneTech/lt-monorepo/issues/2)) ([35ea61b](https://github.com/lenneTech/lt-monorepo/commit/35ea61b33252a4f3e9fd2c28e7291937140c00aa))
 ## [3.12.0](https://github.com/lenneTech/lt-monorepo/compare/v3.11.0...v3.12.0) (2026-09-04)
 
 ### Features
