@@ -17,7 +17,7 @@
     "check:pin": "node scripts/check-packagemanager-pin.mjs",
     "check:playwright-image": "node scripts/check-playwright-image.mjs",
     "check:ci": "node scripts/check-ci-consistency.mjs",
-    "test:scripts": "node --test scripts/lib/workspace-packages.test.mjs scripts/lib/audit-report.test.mjs scripts/build-test-gate.test.mjs scripts/nuxt-builddir-isolation.test.mjs scripts/check-ci-consistency.test.mjs scripts/check-workspace-consistency.test.mjs scripts/check-overrides.test.ts scripts/mongo-watchdog.test.mjs scripts/guard-scripts.test.mjs scripts/check-wrapper-version.test.mjs",
+    "test:scripts": "node --test scripts/lib/workspace-packages.test.mjs scripts/lib/audit-report.test.mjs scripts/build-test-gate.test.mjs scripts/nuxt-builddir-isolation.test.mjs scripts/check-ci-consistency.test.mjs scripts/check-workspace-consistency.test.mjs scripts/check-overrides.test.ts scripts/mongo-watchdog.test.mjs scripts/guard-scripts.test.mjs scripts/check-wrapper-version.test.mjs scripts/check-windows.test.mjs",
     "cf": "pnpm run check:fix",
     "cnaf": "pnpm run check:naf",
     "clean": "pnpm -r --parallel run clean",
