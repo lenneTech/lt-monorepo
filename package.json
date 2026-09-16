@@ -7,9 +7,9 @@
   "scripts": {
     "c": "pnpm run check",
     "check": "node scripts/check.mjs",
-    "check:raw": "NUXT_BUILD_DIR=.nuxt-check pnpm install --frozen-lockfile && NUXT_BUILD_DIR=.nuxt-check pnpm audit && pnpm run check:overrides && pnpm run check:peers && pnpm run check:workspace && pnpm run check:pin && pnpm run check:playwright-image && pnpm run check:ci && pnpm run format:check && pnpm run lint && pnpm run test:scripts && pnpm -r --parallel run check",
-    "check:fix": "NUXT_BUILD_DIR=.nuxt-check pnpm install && NUXT_BUILD_DIR=.nuxt-check pnpm audit --fix && pnpm run check:overrides && pnpm run check:peers && pnpm run check:workspace && pnpm run check:pin && pnpm run check:playwright-image && pnpm run check:ci && pnpm run format && pnpm run lint:fix && pnpm run test:scripts && pnpm -r --parallel run check:fix",
-    "check:naf": "NUXT_BUILD_DIR=.nuxt-check pnpm install && pnpm run check:overrides && pnpm run check:peers && pnpm run check:workspace && pnpm run check:pin && pnpm run check:playwright-image && pnpm run check:ci && pnpm run format && pnpm run lint:fix && pnpm run test:scripts && pnpm -r --parallel run check:naf",
+    "check:raw": "cross-env NUXT_BUILD_DIR=.nuxt-check pnpm install --frozen-lockfile && cross-env NUXT_BUILD_DIR=.nuxt-check pnpm audit && pnpm run check:overrides && pnpm run check:peers && pnpm run check:workspace && pnpm run check:pin && pnpm run check:playwright-image && pnpm run check:ci && pnpm run format:check && pnpm run lint && pnpm run test:scripts && pnpm -r --parallel run check",
+    "check:fix": "cross-env NUXT_BUILD_DIR=.nuxt-check pnpm install && cross-env NUXT_BUILD_DIR=.nuxt-check pnpm audit --fix && pnpm run check:overrides && pnpm run check:peers && pnpm run check:workspace && pnpm run check:pin && pnpm run check:playwright-image && pnpm run check:ci && pnpm run format && pnpm run lint:fix && pnpm run test:scripts && pnpm -r --parallel run check:fix",
+    "check:naf": "cross-env NUXT_BUILD_DIR=.nuxt-check pnpm install && pnpm run check:overrides && pnpm run check:peers && pnpm run check:workspace && pnpm run check:pin && pnpm run check:playwright-image && pnpm run check:ci && pnpm run format && pnpm run lint:fix && pnpm run test:scripts && pnpm -r --parallel run check:naf",
     "check:peers": "pnpm peers check",
     "check:audit": "node scripts/check-audit.mjs",
     "check:overrides": "node scripts/check-overrides.mjs",
@@ -50,6 +50,7 @@
   },
   "devDependencies": {
     "commit-and-tag-version": "13.1.2",
+    "cross-env": "10.1.0",
     "husky": "9.1.7",
     "oxfmt": "0.64.0",
     "oxlint": "1.79.0"

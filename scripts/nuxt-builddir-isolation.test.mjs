@@ -58,8 +58,15 @@ const CHECK_DIR = '.nuxt-check';
 /** Escape a literal for safe interpolation into a RegExp. */
 const rx = (literal) => literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Anchored: a pin buried mid-command would not reach the child's env. */
-const PINNED = new RegExp(`^NUXT_BUILD_DIR=${rx(CHECK_DIR)}\\s`);
+/**
+ * Anchored: a pin buried mid-command would not reach the child's env.
+ *
+ * `cross-env` may precede it, and in the root chains it must — `VAR=value cmd` is shell
+ * syntax that cmd.exe answers with 'NUXT_BUILD_DIR' is not recognized as an internal or
+ * external command', which kills `pnpm run check` on Windows in its first step. The
+ * assignment still has to come first after it, so a pin in the middle stays a failure.
+ */
+const PINNED = new RegExp(`^(?:cross-env\\s+)?NUXT_BUILD_DIR=${rx(CHECK_DIR)}\\s`);
 
 /**
  * The commands that run package-manager lifecycle hooks.
@@ -248,6 +255,27 @@ describe('DEV-2723 — the raw chains pin their package-manager steps themselves
       }
     }
     assert.ok(seen > 0, 'no check chain surfaced a package-manager step — this test no longer proves anything');
+  });
+
+  it('every environment assignment in a root script goes through cross-env', () => {
+    // Windows portability, measured on a Windows laptop: a bare `VAR=value cmd` prefix is
+    // POSIX shell syntax. cmd.exe reads `NUXT_BUILD_DIR` as the command name and aborts the
+    // whole chain with 'is not recognized as an internal or external command'. The pin above
+    // asserts THAT a step is pinned; this asserts the pin is written portably.
+    //
+    // Per step, not per chain: `&&` starts a new command, and a `cross-env` at the front of
+    // the chain binds only to the first one.
+    let seen = 0;
+    for (const [name, chain] of Object.entries(rootScripts)) {
+      for (const step of chain.split('&&').map((s) => s.trim())) {
+        if (!/^[A-Z_][A-Z0-9_]*=/.test(step)) continue;
+        seen++;
+        assert.fail(
+          `\`${name}\`: step \`${step}\` starts with a bare environment assignment — prefix it with \`cross-env\`, or cmd.exe fails the whole chain on Windows`,
+        );
+      }
+    }
+    assert.equal(seen, 0);
   });
 
   it('`init` / `reinit` stay unpinned (they are what supplies the IDE)', () => {
