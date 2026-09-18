@@ -43,7 +43,7 @@
     "format": "oxfmt --write scripts/ && pnpm -r --parallel run format",
     "format:check": "oxfmt --check scripts/ && pnpm -r --parallel run format:check",
     "reinit": "rm -rf node_modules && rm -rf pnpm-lock.yaml && pnpm install && pnpm -r --parallel run reinit",
-    "prepare": "husky || true",
+    "prepare": "husky || exit 0",
     "release": "commit-and-tag-version",
     "release:minor": "commit-and-tag-version --release-as minor",
     "release:major": "commit-and-tag-version --release-as major"
