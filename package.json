@@ -42,7 +42,7 @@
     "lint:fix": "oxlint --fix scripts/ && pnpm -r --parallel run lint:fix",
     "format": "oxfmt --write scripts/ && pnpm -r --parallel run format",
     "format:check": "oxfmt --check scripts/ && pnpm -r --parallel run format:check",
-    "reinit": "rm -rf node_modules && rm -rf pnpm-lock.yaml && pnpm install && pnpm -r --parallel run reinit",
+    "reinit": "node scripts/remove.mjs node_modules pnpm-lock.yaml && pnpm install && pnpm -r --parallel run reinit",
     "prepare": "husky || exit 0",
     "release": "commit-and-tag-version",
     "release:minor": "commit-and-tag-version --release-as minor",

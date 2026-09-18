@@ -10,19 +10,67 @@
  * 2. Killing a process tree. Windows has no `pgrep` and no signals, and `taskkill /T` without
  *    `/F` was measured to leave the tree alive with the port still held.
  * 3. The shell the root scripts are written in. cmd.exe has no `true`, so `<cmd> || true` —
- *    the idiom for "this step may fail" — fails twice and takes the whole install down.
+ *    the idiom for "this step may fail" — fails twice and takes the whole install down. It has
+ *    no `rm` either, which is how `reinit` died before it deleted anything.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { killTreePlan, pinCheckBuildDir, stepEnv } from './check.mjs';
+import { removeAll, resolveTarget } from './remove.mjs';
 
 const CHECK_DIR = '.nuxt-check';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rootScripts = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts;
+
+/**
+ * Programs a POSIX shell has and cmd.exe does not.
+ *
+ * `true` is deliberately absent: the `|| true` case below names that one with a message that
+ * says what to write instead, and two failures for one mistake help nobody.
+ */
+const POSIX_ONLY = new Set([
+  'awk',
+  'cat',
+  'chmod',
+  'chown',
+  'cp',
+  'find',
+  'grep',
+  'kill',
+  'ln',
+  'mkdir',
+  'mv',
+  'open',
+  'pgrep',
+  'rm',
+  'rmdir',
+  'sed',
+  'sleep',
+  'touch',
+  'which',
+  'xargs',
+]);
+
+/**
+ * The program a shell segment actually runs.
+ *
+ * Matching the raw text would be wrong in both directions: `--find` or a script named
+ * `rm:cache` is not a call to `find` or `rm`, and a command hidden behind `cross-env` or an
+ * environment assignment IS one. So the leading assignments and `cross-env` are stepped over
+ * and only the resulting first word counts.
+ */
+function commandOf(segment) {
+  const words = segment.trim().split(/\s+/).filter(Boolean);
+  let i = 0;
+  while (i < words.length && (words[i] === 'cross-env' || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]))) i++;
+  return words[i] ?? '';
+}
 
 describe('pinCheckBuildDir across platforms', () => {
   it('writes the textual prefix on POSIX', () => {
@@ -90,6 +138,25 @@ describe('root scripts survive cmd.exe', () => {
     }
   });
 
+  it('no script calls a program cmd.exe does not have', () => {
+    // `reinit` ran `rm -rf node_modules`, so on Windows it failed before deleting anything —
+    // the same class as `|| true`, one command further along. The portable replacement is
+    // `node scripts/remove.mjs`, because node is the one interpreter a package-manager script
+    // can count on: pnpm is running on it.
+    let seen = 0;
+    for (const [name, chain] of Object.entries(rootScripts)) {
+      for (const segment of chain.split(/&&|\|\||;|\|/)) {
+        const command = commandOf(segment);
+        seen++;
+        assert.ok(
+          !POSIX_ONLY.has(command),
+          `\`${name}\` runs \`${command}\`, which cmd.exe does not have — the step dies on Windows before it does anything. For file removal use \`node scripts/remove.mjs <path…>\``,
+        );
+      }
+    }
+    assert.ok(seen > 20, `only ${seen} script segments scanned — the rule is no longer reading the scripts`);
+  });
+
   it('`prepare` still tolerates a missing husky', () => {
     // The reason the `|| …` is there at all: a production install (`--prod`, `--no-optional`)
     // has no husky, and installing git hooks is not what such an install is for. Without the
@@ -99,6 +166,42 @@ describe('root scripts survive cmd.exe', () => {
       /^husky\s*\|\|\s*exit 0$/,
       '`prepare` must run husky and step aside when it is absent, in a form both shells understand',
     );
+  });
+});
+
+describe('scripts/remove.mjs — the portable `rm -rf`', () => {
+  const dirs = [];
+  const sandbox = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'remove-test-'));
+    dirs.push(dir);
+    return dir;
+  };
+  after(() => {
+    for (const dir of dirs) rmSync(dir, { force: true, recursive: true });
+  });
+
+  it('removes a directory tree and a file in one call', () => {
+    const root = sandbox();
+    mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'pkg', 'index.js'), '');
+    writeFileSync(join(root, 'pnpm-lock.yaml'), '');
+    removeAll(['node_modules', 'pnpm-lock.yaml'], root);
+    assert.equal(existsSync(join(root, 'node_modules')), false);
+    assert.equal(existsSync(join(root, 'pnpm-lock.yaml')), false);
+  });
+
+  it('treats an absent path as done, not as an error', () => {
+    // `reinit` runs on trees that were never installed — that is precisely when node_modules
+    // is missing, and `rm -rf` did not mind either.
+    const root = sandbox();
+    assert.doesNotThrow(() => removeAll(['node_modules'], root));
+  });
+
+  it('refuses a path outside the repository root', () => {
+    const root = sandbox();
+    for (const target of ['..', '../sibling', root]) {
+      assert.throws(() => resolveTarget(target, root), /outside the repository root|refusing/);
+    }
   });
 });
 
