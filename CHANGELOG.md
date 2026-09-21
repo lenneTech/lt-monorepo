@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.13.1](https://github.com/lenneTech/lt-monorepo/compare/v3.13.0...v3.13.1) (2026-09-21)
+
+### Bug Fixes
+
+* **check:** run the check chains through cross-env ([#5](https://github.com/lenneTech/lt-monorepo/issues/5)) ([5977995](https://github.com/lenneTech/lt-monorepo/commit/59779952fe0057252cfa1416c2e7a903316563b3))
+* **check:** make the check runner's pin and process kill work on Windows ([#6](https://github.com/lenneTech/lt-monorepo/issues/6)) ([83f9287](https://github.com/lenneTech/lt-monorepo/commit/83f928787f863cb6fefb383b1cae93439a8d3129))
+* **prepare:** stop a dev-free install from failing on Windows ([#7](https://github.com/lenneTech/lt-monorepo/issues/7)) ([ee9348a](https://github.com/lenneTech/lt-monorepo/commit/ee9348a2a0ed8f29bef7ceb63ab6fe5e0ddf3366))
+* **reinit:** replace rm -rf with a portable removal script ([#8](https://github.com/lenneTech/lt-monorepo/issues/8)) ([80d80f5](https://github.com/lenneTech/lt-monorepo/commit/80d80f5603174bb2a33317d8b78d3fb805e5fae2))
 ## [3.13.0](https://github.com/lenneTech/lt-monorepo/compare/v3.12.0...v3.13.0) (2026-09-15)
 
 ### Bug Fixes
