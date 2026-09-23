@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { isKillablePid, killTreePlan, killTreeWith, pinCheckBuildDir, stepEnv } from './check.mjs';
+import { killTreePlan, pinCheckBuildDir, stepEnv } from './check.mjs';
 import { removeAll, resolveTarget } from './remove.mjs';
 
 const CHECK_DIR = '.nuxt-check';
