@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { killTreePlan, pinCheckBuildDir, stepEnv } from './check.mjs';
+import { isKillablePid, killTreePlan, killTreeWith, pinCheckBuildDir, stepEnv } from './check.mjs';
 import { removeAll, resolveTarget } from './remove.mjs';
 
 const CHECK_DIR = '.nuxt-check';
@@ -216,7 +216,7 @@ describe('killTreePlan', () => {
     // `taskkill /T` without `/F` was measured to answer "Die Beendigung dieses Prozesses muss
     // erzwungen werden" and leave the port held — the hang the watchdog exists to end.
     for (const signal of ['SIGTERM', 'SIGKILL']) {
-      assert.ok(killTreePlan(1, signal, 'win32').args.includes('/F'), `${signal} must still force`);
+      assert.ok(killTreePlan(4321, signal, 'win32').args.includes('/F'), `${signal} must still force`);
     }
   });
 
