@@ -18,6 +18,24 @@ on:
   workflow_call:
 
 jobs:
+  # Decides whether the jobs that need projects/api and projects/app run. In the
+  # template repository `projects/` stays empty until `lt fullstack init`, so they
+  # are skipped there with a notice. In a generated project a missing `projects/`
+  # FAILS here instead of skipping. Logic and rationale: scripts/ci-projects.mjs.
+  # GitLab has no counterpart: the template is only hosted on GitHub, and
+  # .gitlab-ci.yml only ever runs in generated projects.
+  projects:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: decide
+        run: node scripts/ci-projects.mjs
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -78,6 +96,8 @@ jobs:
 
   api-test:
     runs-on: ubuntu-latest
+    needs: [projects]
+    if: ${{ needs.projects.outputs.run == 'true' }}
     services:
       mongo:
         image: mongo:7
@@ -248,8 +268,8 @@ jobs:
   # workflow leaves a partial report per shard and no combined view.
   app-report:
     runs-on: ubuntu-latest
-    needs: [app-test]
-    if: always()
+    needs: [app-test, projects]
+    if: ${{ always() && needs.projects.outputs.run == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -272,6 +292,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    needs: [projects]
+    if: ${{ needs.projects.outputs.run == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
