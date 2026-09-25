@@ -54,6 +54,10 @@ jobs:
       - run: node scripts/check-ci-consistency.mjs
       - run: pnpm run format:check
       - run: pnpm run lint
+      # The repository's own script tests, under the signal guard that lets a test
+      # signal only the children it spawned (scripts/support/signal-guard.mjs).
+      # Before this step they ran only inside a local `pnpm run check`.
+      - run: pnpm run test:scripts
 
   # Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING,
   # exactly like the GitLab `audit` job.
