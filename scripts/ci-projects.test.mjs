@@ -3,7 +3,7 @@
  * project, where a missing `projects/` has to fail instead of going green.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -48,10 +48,18 @@ describe('projectJobs', () => {
     }
   });
 
-  it('matches the name this template actually carries', () => {
-    // If the root package is ever renamed, the template stops recognising itself and its
-    // empty projects/ fails loudly — the safe direction, but this names the cause.
-    assert.equal(JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).name, TEMPLATE);
+  it('accepts the repository it runs in', () => {
+    // Runs in the template AND in every project generated from it, whose root package init
+    // renames. So it must not pin the name; it pins the outcome. In the template (empty
+    // projects/, name "lt-monorepo") that is a skip; in a generated project, a run. If the
+    // template's package is ever renamed, its empty projects/ stops being recognised and
+    // this names the cause before CI does.
+    const decision = projectJobs({
+      hasApi: existsSync(join(ROOT, 'projects/api/package.json')),
+      hasApp: existsSync(join(ROOT, 'projects/app/package.json')),
+      rootName: JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).name,
+    });
+    assert.equal(decision.error, undefined, decision.error);
   });
 });
 
