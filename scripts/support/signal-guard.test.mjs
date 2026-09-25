@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -45,6 +45,15 @@ describe('signalVerdict', () => {
 });
 
 describe('signal guard wiring', () => {
+  it('is loaded by test:scripts, and both CI pipelines run test:scripts', () => {
+    // Without the CI half the guard protected only whoever ran `pnpm run check` locally.
+    const root = join(dirname(GUARD), '..', '..');
+    const script = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts['test:scripts'];
+    assert.match(script, /^node --import \.\/scripts\/support\/signal-guard\.mjs --test /);
+    assert.match(readFileSync(join(root, '.github/workflows/test.yml'), 'utf8'), /^ {6}- run: pnpm run test:scripts$/m);
+    assert.match(readFileSync(join(root, '.gitlab-ci.yml'), 'utf8'), /^ {4}- pnpm run test:scripts$/m);
+  });
+
   it('is loaded in this test process', () => {
     assert.equal(
       guardInstalled(),

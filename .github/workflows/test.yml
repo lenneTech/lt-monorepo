@@ -57,6 +57,10 @@ jobs:
       # Type gate — mirrors the GitLab `lint` job. See the comment there for why
       # it is a CI step and why the root script runs `typecheck:tests` as well.
       - run: pnpm run typecheck
+      # The repository's own script tests, under the signal guard that lets a test
+      # signal only the children it spawned (scripts/support/signal-guard.mjs).
+      # Before this step they ran only inside a local `pnpm run check`.
+      - run: pnpm run test:scripts
 
   # Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING,
   # exactly like the GitLab `audit` job.

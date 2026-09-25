@@ -96,6 +96,9 @@ lint:
     # package that only declares `typecheck:tests` (the API starter does).
     # `--if-present` keeps a project without them (e.g. an Angular frontend) green.
     - pnpm run typecheck
+    # The repository's own script tests, under the signal guard that lets a test
+    # signal only the children it spawned (scripts/support/signal-guard.mjs).
+    - pnpm run test:scripts
 
 # Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING.
 #
