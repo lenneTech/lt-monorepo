@@ -49,11 +49,11 @@
     "release:major": "commit-and-tag-version --release-as major"
   },
   "devDependencies": {
-    "commit-and-tag-version": "13.1.2",
+    "commit-and-tag-version": "13.2.1",
     "cross-env": "10.1.0",
     "husky": "9.1.7",
-    "oxfmt": "0.64.0",
-    "oxlint": "1.79.0"
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0"
   },
   "engines": {
     "node": ">= 22",
