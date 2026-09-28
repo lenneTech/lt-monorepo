@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.14.1](https://github.com/lenneTech/lt-monorepo/compare/v3.14.0...v3.14.1) (2026-09-28)
+
+### Bug Fixes
+
+* **compose:** give mongo a 60s stop grace period and say what TurboOps ignores ([d62497f](https://github.com/lenneTech/lt-monorepo/commit/d62497fb8c523498d8005048730e527df1bbef26))
+
+### Chores
+
+* **deps:** raise oxlint, oxfmt and commit-and-tag-version to the starters' pins ([e1caf22](https://github.com/lenneTech/lt-monorepo/commit/e1caf22fdb628fb288dce7fd897dc91a31c3b412))
+
 ## [3.14.0](https://github.com/lenneTech/lt-monorepo/compare/v3.13.1...v3.14.0) (2026-09-25)
 
 ### Bug Fixes
