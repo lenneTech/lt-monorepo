@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.14.0](https://github.com/lenneTech/lt-monorepo/compare/v3.13.1...v3.14.0) (2026-09-25)
+
+### Bug Fixes
+
+* **check:** refuse non-pids in killTree and guard tests against real signals ([#10](https://github.com/lenneTech/lt-monorepo/issues/10)) ([f45cb2c](https://github.com/lenneTech/lt-monorepo/commit/f45cb2c65f0ecf533e6600950abf20c3a2f2c143))
 ## [3.13.1](https://github.com/lenneTech/lt-monorepo/compare/v3.13.0...v3.13.1) (2026-09-21)
 
 ### Bug Fixes
