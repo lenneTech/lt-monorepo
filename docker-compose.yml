@@ -39,10 +39,27 @@ services:
     # auto-sizing described above. Tune these numbers to your workload.
     # `deploy.resources.limits` IS honoured by `docker compose up` (unlike deploy.replicas, which is
     # Swarm-only).
+    #
+    # ⚠ Under TurboOps this limit does NOT reach the deployed container. TurboOps replaces every
+    # service's whole `deploy:` block (only `deploy.labels` survive) with one built from the
+    # stage's "Deploy" settings — with no memory limit set there, the service runs without a
+    # memory cgroup (`docker service inspect` → `Resources.Limits: null`) and Node sizes its heap
+    # from the HOST's RAM, the failure mode described above.
+    # ⇒ Set the limit in the TurboOps stage's Deploy tab and confirm it with `docker service
+    #   inspect` (names via `docker service ls --filter name=<stack>`, which carry a per-stack hash
+    #   prefix: `<stack>_<hash>-mongo`). Keep this block anyway: `docker compose up`
+    #   honours it, and it documents the intended figure. Keys OUTSIDE `deploy:` (e.g.
+    #   `stop_grace_period`, `healthcheck`, `restart`) do pass through — `docker stack deploy`
+    #   turns `restart: on-failure:10` into the service's restart policy unless the stage's
+    #   Deploy tab sets one.
     deploy:
       resources:
         limits:
           memory: 1024M
+    # mongod flushes its journal and checkpoints on SIGTERM; Docker's default 10s grace can SIGKILL
+    # it mid-shutdown once the data set grows. A clean exit ends the wait early, so 60s costs
+    # nothing on a healthy stop. It sits outside `deploy:`, so it reaches TurboOps as well.
+    stop_grace_period: 60s
     restart: unless-stopped
 
   # === API (NestJS) ===
