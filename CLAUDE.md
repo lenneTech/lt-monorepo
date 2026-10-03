@@ -41,7 +41,7 @@ cd projects/api && pnpm run test:e2e  # Run API tests
 - **Framework:** {{FRONTEND_FRAMEWORK}} + `@lenne.tech/nuxt-extensions`
 - **UI:** NuxtUI 4 + TailwindCSS 4
 - **API Client:** Generated types (`types.gen.ts`, `sdk.gen.ts`)
-- **Auth:** `useBetterAuth()` composable
+- **Auth:** `useLtAuth()` composable (`useLtAuthClient()` for the raw Better Auth client)
 - **URL:** `https://{{PROJECT_NAME}}.localhost` (set automatically by `lt dev up`); falls back to `http://localhost:3001` for classic `pnpm dev`
 
 ```bash
@@ -216,7 +216,7 @@ Key files in `projects/app/node_modules/@lenne.tech/nuxt-extensions/`:
 | File | Purpose |
 |------|---------|
 | `CLAUDE.md` | Composables, components, configuration |
-| `dist/runtime/composables/` | Available composables (useBetterAuth, etc.) |
+| `dist/runtime/composables/` | Available composables (useLtAuth, useLtTusUpload, etc.) — list this directory rather than grepping the docs for a name |
 | `dist/runtime/components/` | Available components |
 
 ## Auth Middleware Pattern
