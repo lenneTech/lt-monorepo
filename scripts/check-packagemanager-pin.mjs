@@ -33,6 +33,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { commandPlan, provisionedPnpmPath } from './lib/spawn-plan.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TAG = '[packagemanager-pin]';
 
@@ -239,13 +241,19 @@ if (process.env.CI || process.env.PIN_PROVISION_TEST) {
   check(`npm install -g of the derived spec delivers pnpm ${pinnedVersion}`, () => {
     const prefix = mkdtempSync(join(tmpdir(), 'pin-provision-'));
     try {
-      execFileSync('npm', ['install', '-g', '--prefix', prefix, pinnedSpec], {
+      // `npm` and the provisioned `pnpm` are `.cmd` shims on Windows, and npm puts the latter at
+      // `<prefix>/pnpm.cmd` rather than `<prefix>/bin/pnpm` there — see spawn-plan.
+      const install = commandPlan('npm', ['install', '-g', '--prefix', prefix, pinnedSpec]);
+      execFileSync(install.file, install.args, {
+        ...install.options,
         cwd: ROOT,
         encoding: 'utf8',
         stdio: 'pipe',
         timeout: 180_000,
       });
-      const version = execFileSync(join(prefix, 'bin', 'pnpm'), ['--version'], {
+      const probe = commandPlan(provisionedPnpmPath(prefix), ['--version']);
+      const version = execFileSync(probe.file, probe.args, {
+        ...probe.options,
         encoding: 'utf8',
         timeout: 30_000,
       }).trim();

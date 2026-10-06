@@ -40,6 +40,7 @@ import {
   isAuditEndpointUnavailable,
   sumSeverities,
 } from './lib/audit-report.mjs';
+import { commandPlan } from './lib/spawn-plan.mjs';
 
 // Derived from the registry pnpm actually resolves against. A hardcoded npmjs.org URL would
 // answer while a private registry is down, turning this safeguard into a second false all-clear.
@@ -98,10 +99,13 @@ function runAudit() {
   // The extra args are passed through, so a project can narrow the scope in its own CI file
   // without this script having to know about `--prod` or `--audit-level`.
   const args = ['audit', '--json', ...process.argv.slice(2)];
+  // `pnpm` is a `.cmd` shim on Windows, which Node will not spawn without a shell — see spawn-plan.
+  const plan = commandPlan('pnpm', args);
   try {
     return {
       code: 0,
-      out: execFileSync('pnpm', args, {
+      out: execFileSync(plan.file, plan.args, {
+        ...plan.options,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: AUDIT_TIMEOUT_MS,
