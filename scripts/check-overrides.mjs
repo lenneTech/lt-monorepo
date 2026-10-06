@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 /**
+ * PORTED VERBATIM from @lenne.tech/nest-server (`scripts/check-overrides.mjs`) on 2026-10-06,
+ * from develop at 6bc148d (11.42.5 plus the registry fix), so the `auditConfig` entries below
+ * this repository — and in every project generated from it — are re-checked against the GitHub
+ * Advisory API like the framework's are. Keep the copies in step: a fix there belongs here too.
+ * `scripts/` is NOT part of the npm package, so bumping `@lenne.tech/nest-server` never brings a
+ * newer guard; it has to be ported. Its test is `scripts/check-overrides.test.ts`, the same file
+ * as upstream's `tests/unit/check-overrides.guard.spec.ts` apart from the import block (node:test
+ * plus an `expect` shim instead of vitest). The mutation evidence behind its `@regression` tags
+ * is registered in nest-server.
+ *
  * Catches pnpm overrides that LOOK like a security fix and close nothing.
  *
  * An override is written once, in response to an advisory, and then never read
@@ -263,6 +273,74 @@ const suppressed = [
   ]),
 ].filter((id) => typeof id === 'string' && id.startsWith('GHSA-'));
 
+/**
+ * Suppressions whose advisory DOES have a published fix that the consumer
+ * provably cannot use.
+ *
+ *   auditConfig:
+ *     unusableFixConsumers:
+ *       GHSA-x6jw-m9v5-85vh: '@nuxt/devtools@3.4.1 cannot use 4.0.1'
+ *
+ * ## Why this exists
+ *
+ * Until this block a suppression was obsolete the moment its advisory gained a
+ * patched version, and for the common case that is right: a fix landed, take it.
+ * But it read a second, opposite case as the same thing. Sometimes the fix exists
+ * and the thing that pulls the vulnerable version in cannot use it — a patched
+ * major removed an export the consumer imports, or the consumer pins the
+ * vulnerable range itself. Then "take the fix" is not advice, it is a dead end,
+ * and the only ways out were a permanently red build or switching the guard off
+ * for that entry.
+ *
+ * Measured in lt-crm 2026-10-06: three `simple-git` advisories (one CRITICAL)
+ * reachable only via `nuxt > @nuxt/devtools > simple-git`. The CRITICAL names
+ * `>=4.0.1`; simple-git 4 dropped the default export that @nuxt/devtools
+ * imports, so the override made `nuxt prepare` fail outright. The newest devtools
+ * in the 3.x line still imports it that way, and devtools is a hard dependency of
+ * `nuxt`, so it can be neither raised nor dropped.
+ *
+ * ## Why it is a declaration and not an exemption
+ *
+ * The value records the consumer, the version it was assessed against, AND the
+ * patched versions that were rejected. Each of those is a thing that can change
+ * without anybody revisiting the entry, so each is checked on every run:
+ *
+ * 1. the consumer's resolved version moved, or it left the tree;
+ * 2. the advisory now offers a patched version that was never assessed — the
+ *    BACKPORT case, where a fix appears in a line the consumer CAN use while the
+ *    rejected one stays unusable;
+ * 3. something other than the declared consumer pulls an affected package, so the
+ *    one-consumer argument no longer covers the finding.
+ *
+ * Any of the three fails the run with RE-TEST. An UNDECLARED suppression over a
+ * fixed advisory still fails on sight, exactly as before — this is a narrow,
+ * self-expiring exception, not a wider gate.
+ *
+ * The human reasoning stays in a comment above the `ignoreGhsas` entry, where a
+ * reader finds it. This block is what stops that comment outliving its truth.
+ */
+const residualDeclarations = {
+  ...pkg.pnpm?.auditConfig?.unusableFixConsumers,
+  ...pkg.auditConfig?.unusableFixConsumers,
+  ...workspaceMap(['auditConfig', 'unusableFixConsumers']),
+};
+
+/** Splits `'<consumer>@<version> cannot use <v1>, <v2>'` into its three parts. */
+function parseResidual(raw) {
+  const [left, right] = String(raw).split(/\s+cannot use\s+/);
+  // The consumer may be scoped (`@nuxt/devtools@3.4.1`), so the LAST `@` separates.
+  const at = left.lastIndexOf('@');
+  return {
+    assessedAt: at > 0 ? left.slice(at + 1).trim() : '',
+    consumer: (at > 0 ? left.slice(0, at) : left).trim(),
+    // Several, because one advisory can carry a fix per affected package line.
+    rejected: (right ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Settings that pnpm 11 no longer reads
 // ---------------------------------------------------------------------------
@@ -359,6 +437,15 @@ function targetPackage(key) {
 const fileFlag = process.argv.indexOf('--audit-file');
 let report = null;
 let source = '';
+// Set when no usable audit report exists. The OVERRIDE verdict is then impossible, but the
+// suppression checks below ask the GitHub Advisory API, not the audit, so they still run: an
+// early exit here skipped them, and a suppressed advisory gaining a fix went unreported for as
+// long as the audit failed (wave 2c review). The run ends with a WARN instead of the ok line.
+let auditUnavailable = false;
+const suppressionNote =
+  suppressed.length > 0
+    ? `\n  The ${suppressed.length} suppression(s) are still checked: they do not depend on the audit.`
+    : '';
 
 if (fileFlag !== -1) {
   const path = process.argv[fileFlag + 1];
@@ -377,10 +464,16 @@ if (fileFlag !== -1) {
     // `pnpm audit` exits non-zero WHENEVER it finds anything, which is the normal
     // case here — the report on stdout is what matters, not the status. Only a
     // missing/garbled payload counts as a failure to run.
-    const stdout = execFileSync('pnpm', ['audit', '--json'], {
+    // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
+    // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
+    // shell. Node then deprecates passing args ALONGSIDE it (DEP0190), because it just
+    // concatenates them unescaped. Every token here is a literal, so we write the line
+    // out and there is nothing to escape.
+    const stdout = execFileSync('pnpm audit --json', {
       cwd: ROOT,
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
+      shell: true,
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 180_000,
     });
@@ -406,11 +499,40 @@ if (fileFlag !== -1) {
         `${TAG} WARN — could not obtain an audit report (${(err?.message ?? 'unknown error').split('\n')[0]}).\n` +
           `  ${overrideCount} override(s) are declared and NONE of them were verified.\n` +
           `  Re-run with network access, or pass a captured report:\n` +
-          `    pnpm audit --json > audit.json && node scripts/check-overrides.mjs --audit-file audit.json`,
+          `    pnpm audit --json > audit.json && node scripts/check-overrides.mjs --audit-file audit.json` +
+          suppressionNote,
       );
-      process.exit(0);
+      auditUnavailable = true;
+      report = { advisories: {} };
     }
   }
+}
+
+// pnpm 11 answers an audit it could not RUN with valid JSON: `{"error": {"code": "pnpm",
+// "message": "fetch failed"}}` and no `advisories` key (measured 2026-10-06, registry
+// unreachable). That passed every check above, and `report.advisories ?? {}` below turned it
+// into "0 advisories, none failing": an "ok" line for a run that verified nothing, under CI too.
+// It is the same situation as a report that could not be obtained at all, so it takes the same
+// handling. A captured file holding an error FAILS, because that is the CI path and a skip there
+// is a silent pass. A live run warns and continues with the suppression checks, as above.
+if (!auditUnavailable && (report.error || typeof report.advisories !== 'object' || report.advisories === null)) {
+  const reason = String(report.error?.message ?? 'the report has no advisories section').split('\n')[0];
+  if (fileFlag !== -1) {
+    console.error(
+      `${TAG} FAIL — the audit report at ${source} records a failed audit, not a result (${reason}).\n` +
+        `  ${overrideCount} override(s) are declared and NONE of them could be verified.`,
+    );
+    process.exit(1);
+  }
+  console.warn(
+    `${TAG} WARN — could not obtain an audit report (${reason}).\n` +
+      `  ${overrideCount} override(s) are declared and NONE of them were verified.\n` +
+      `  Re-run with network access, or pass a captured report:\n` +
+      `    pnpm audit --json > audit.json && node scripts/check-overrides.mjs --audit-file audit.json` +
+      suppressionNote,
+  );
+  auditUnavailable = true;
+  report = { advisories: {} };
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +540,125 @@ if (fileFlag !== -1) {
 // ---------------------------------------------------------------------------
 
 const advisories = Object.values(report.advisories ?? {});
+
+// Declared ABOVE the clean-tree probe below, which runs at top level and reads
+// NPM_ADVISORY_BULK. Declared after it, the probe hit the const's temporal dead zone,
+// the ReferenceError landed in the probe's catch, and a clean audit was reported as
+// "npm's advisory service is unreachable" — the guard verified nothing on exactly the
+// runs where there was nothing to find.
+
+/**
+ * Base URL for the Advisory API — overridable, but ONLY to a loopback address.
+ *
+ * The rate-limit branch below is the one piece of logic here that cannot be reached through
+ * `--advisory-file`, because that flag exists precisely to bypass `fetch`. Without a seam it
+ * would be untestable, and untested branches in a security guard are what this whole script
+ * is about: a rule only ever asserted in its passing state is indistinguishable from one that
+ * is never evaluated.
+ *
+ * The loopback restriction is what makes the seam safe to ship. A plain env var would be a
+ * redirect switch for a security check — anything that sets the environment could point the
+ * suppression lookup at a server that answers "no fix exists" forever. Refusing every
+ * non-loopback value means the override is usable from a test and inert everywhere else,
+ * including CI. A rejected value is announced rather than silently ignored, so a typo does
+ * not look like it worked.
+ */
+const ADVISORY_API_BASE = (() => {
+  const override = process.env.CHECK_OVERRIDES_ADVISORY_API;
+  if (!override) {
+    return 'https://api.github.com';
+  }
+  try {
+    const url = new URL(override);
+    if (['127.0.0.1', '::1', '[::1]', 'localhost'].includes(url.hostname)) {
+      return url.origin;
+    }
+  } catch {
+    /* not a URL — falls through to the warning below */
+  }
+  console.warn(
+    `${TAG} WARN — ignoring CHECK_OVERRIDES_ADVISORY_API="${override}": only a loopback address\n` +
+      '      (127.0.0.1, ::1, localhost) is honoured. Using the real Advisory API.',
+  );
+  return 'https://api.github.com';
+})();
+
+/**
+ * npm's bulk advisory endpoint, used only to tell "clean tree" apart from "service down".
+ *
+ * Routed through the SAME loopback override as the GitHub lookups. It was hardcoded at first,
+ * which made the ambiguity branch below unreachable from a test — the seam existed two hundred
+ * lines away and this call ignored it. Found by nest-server-5f, who measured that
+ * CHECK_OVERRIDES_ADVISORY_API=http://127.0.0.1:1 still hit the real service here. Same shape
+ * as the rate-limit branch we found the same way: plausible, necessary, and never once executed.
+ *
+ * The DEFAULT was wrong for a second reason, found later the same day: it named npmjs.org while
+ * pnpm audits against the CONFIGURED registry. Behind a private registry or a proxy that produces
+ * the false-green this probe exists to remove, one layer down — the real registry is unreachable,
+ * npmjs.org answers, and the ambiguity resolves to "clean".
+ *
+ * The two helpers below are DUPLICATED on purpose, not by oversight. This guard is copied ALONE
+ * into a temp directory by `scripts/check-overrides.test.ts` and run there — that isolation is what
+ * proves it is standalone, and importing a sibling breaks it (tried upstream; 40 cases went red with
+ * ERR_MODULE_NOT_FOUND, caught only because `assertReachedAVerdict()` refuses to let a crash read as
+ * a verdict).
+ *
+ * THE TWIN LIVES ELSEWHERE IN THIS REPOSITORY. Upstream keeps this block byte-identical with
+ * `scripts/check.mjs` and asserts that in `tests/unit/shared-registry-resolution.spec.ts`. Here
+ * `check.mjs` does not carry a copy — it IMPORTS `configuredRegistry` / `advisoryBulkUrl` from
+ * `scripts/lib/audit-report.mjs`, which has its own tests in `scripts/lib/audit-report.test.mjs`.
+ * So the invariant to keep is behavioural rather than textual: the environment is read before pnpm
+ * is asked, and npmjs.org is a fallback and never the primary answer. The spec's clean-LIVE-audit
+ * group pins both ends of that for this file.
+ */
+// >>> SHARED-REGISTRY-RESOLUTION (behaviour kept in step; see the note above)
+function configuredRegistry() {
+  // The probe must ask the registry the AUDIT used, so it reads the variable the audit reads.
+  // Under pnpm 11 that is `pnpm_config_registry`; `npm_config_registry` is IGNORED by both
+  // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.13.1
+  // upstream and 11.14.0 (this repository's pin) here:
+  //
+  //   pnpm_config_registry=http://127.0.0.1:9/ pnpm audit --json   {"error": … "fetch failed"}
+  //   npm_config_registry=http://127.0.0.1:9/  pnpm audit --json   a normal report from npmjs.org
+  //
+  // An earlier version read `npm_config_registry` first, from a measurement taken on an older
+  // pnpm. Under pnpm 11 that sends the probe to a registry the audit never talked to. The pnpm
+  // spawn below would report `pnpm_config_registry` as well; reading it here saves the spawn
+  // and keeps the answer independent of how a pnpm shim forwards the environment.
+  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.trim();
+  }
+  try {
+    // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
+    // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
+    // shell. Node then deprecates passing args ALONGSIDE it (DEP0190), because it just
+    // concatenates them unescaped. Every token here is a literal, so we write the line
+    // out and there is nothing to escape.
+    return execFileSync('pnpm config get registry', {
+      encoding: 'utf8',
+      shell: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function advisoryBulkUrl(registry) {
+  const fallback = 'https://registry.npmjs.org/';
+  let base = typeof registry === 'string' ? registry.trim() : '';
+  if (!/^https?:\/\//i.test(base)) {
+    base = fallback;
+  }
+  return `${base.replace(/\/+$/, '')}/-/npm/v1/security/advisories/bulk`;
+}
+// <<< SHARED-REGISTRY-RESOLUTION
+
+const NPM_ADVISORY_BULK =
+  ADVISORY_API_BASE === 'https://api.github.com'
+    ? advisoryBulkUrl(configuredRegistry())
+    : `${ADVISORY_API_BASE}/-/npm/v1/security/advisories/bulk`;
 
 // ---------------------------------------------------------------------------
 // A clean tree and a dead advisory service look IDENTICAL in pnpm's output
@@ -445,7 +686,7 @@ const ambiguouslyEmpty =
   Object.values(report.metadata?.vulnerabilities ?? {}).every((n) => !n);
 
 let advisoryServiceDown = false;
-if (ambiguouslyEmpty && fileFlag === -1) {
+if (ambiguouslyEmpty && fileFlag === -1 && !auditUnavailable) {
   // Only for a live audit. With --audit-file the caller supplied the report and
   // owns its provenance; probing the network there would contradict the flag's
   // whole purpose (an offline, reproducible run).
@@ -488,9 +729,10 @@ if (advisoryServiceDown) {
       `  ${overrideCount} override(s) declared.\n` +
       `  Not failing the chain — an npm outage is not a finding about this repo and no\n` +
       `  change here fixes it. Re-run when the service is back, or pass a captured report\n` +
-      `  with --audit-file, before treating any override as verified.`,
+      `  with --audit-file, before treating any override as verified.` +
+      suppressionNote,
   );
-  process.exit(0);
+  auditUnavailable = true;
 }
 
 // One entry per override key, so an override that is right for one advisory and
@@ -557,57 +799,41 @@ const obsoleteSuppressions = [];
 /** Set when the Advisory API refused a lookup because the quota was exhausted. */
 let advisoryRateLimited = false;
 
-/**
- * Base URL for the Advisory API — overridable, but ONLY to a loopback address.
- *
- * The rate-limit branch below is the one piece of logic here that cannot be reached through
- * `--advisory-file`, because that flag exists precisely to bypass `fetch`. Without a seam it
- * would be untestable, and untested branches in a security guard are what this whole script
- * is about: a rule only ever asserted in its passing state is indistinguishable from one that
- * is never evaluated.
- *
- * The loopback restriction is what makes the seam safe to ship. A plain env var would be a
- * redirect switch for a security check — anything that sets the environment could point the
- * suppression lookup at a server that answers "no fix exists" forever. Refusing every
- * non-loopback value means the override is usable from a test and inert everywhere else,
- * including CI. A rejected value is announced rather than silently ignored, so a typo does
- * not look like it worked.
- */
-const ADVISORY_API_BASE = (() => {
-  const override = process.env.CHECK_OVERRIDES_ADVISORY_API;
-  if (!override) {
-    return 'https://api.github.com';
-  }
-  try {
-    const url = new URL(override);
-    if (['127.0.0.1', '::1', '[::1]', 'localhost'].includes(url.hostname)) {
-      return url.origin;
-    }
-  } catch {
-    /* not a URL — falls through to the warning below */
-  }
-  console.warn(
-    `${TAG} WARN — ignoring CHECK_OVERRIDES_ADVISORY_API="${override}": only a loopback address\n` +
-      '      (127.0.0.1, ::1, localhost) is honoured. Using the real Advisory API.',
-  );
-  return 'https://api.github.com';
-})();
-
-/**
- * npm's bulk advisory endpoint, used only to tell "clean tree" apart from "service down".
- *
- * Routed through the SAME loopback override as the GitHub lookups. It was hardcoded at first,
- * which made the ambiguity branch below unreachable from a test — the seam existed two hundred
- * lines away and this call ignored it. Found by nest-server-5f, who measured that
- * CHECK_OVERRIDES_ADVISORY_API=http://127.0.0.1:1 still hit the real service here. Same shape
- * as the rate-limit branch we found the same way: plausible, necessary, and never once executed.
- */
-const NPM_ADVISORY_BULK =
-  ADVISORY_API_BASE === 'https://api.github.com'
-    ? 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
-    : `${ADVISORY_API_BASE}/-/npm/v1/security/advisories/bulk`;
-
 const uncheckedSuppressions = [];
+
+/**
+ * Brings both advisory sources to ONE shape, so a captured fixture and the live
+ * API cannot disagree.
+ *
+ * `patchedVersions` is a LIST because an advisory carries one entry per affected
+ * package line, and those lines get fixed at different versions — the case that
+ * matters here is a BACKPORT: a fix lands in a version the consumer can actually
+ * use while the one it was assessed against stays unusable. Reading only the
+ * first non-null version, as this did before, made that invisible.
+ *
+ * `affectedPackages` is what lets the parent check know WHICH package to look for
+ * in the lockfile.
+ *
+ * Old captured fixtures carry only `first_patched_version`, so that spelling is
+ * accepted as a one-element list — a fixture must not have to be rewritten to
+ * keep meaning what it meant.
+ */
+function normaliseAdvisory(raw) {
+  if (!raw) {
+    return null;
+  }
+  const patchedVersions = Array.isArray(raw.patchedVersions)
+    ? raw.patchedVersions.filter(Boolean)
+    : raw.first_patched_version
+      ? [raw.first_patched_version]
+      : [];
+  return {
+    affectedPackages: Array.isArray(raw.affectedPackages) ? raw.affectedPackages.filter(Boolean) : [],
+    first_patched_version: patchedVersions[0] ?? null,
+    patchedVersions,
+    withdrawn: Boolean(raw.withdrawn),
+  };
+}
 
 /** Reads GHSA metadata, from a captured file when given, else from GitHub. */
 async function advisoryStatus(ids) {
@@ -619,7 +845,7 @@ async function advisoryStatus(ids) {
       console.error(`${TAG} FAIL — cannot read advisory file at ${path ?? '<missing path>'}`);
       process.exit(1);
     }
-    return new Map(ids.map((id) => [id, data[id] ?? null]));
+    return new Map(ids.map((id) => [id, normaliseAdvisory(data[id])]));
   }
 
   // Concurrent, because the failure mode is the offline one. Each lookup carries a 20s
@@ -660,10 +886,20 @@ async function advisoryStatus(ids) {
           return [id, null];
         }
         const body = await res.json();
-        // An advisory carries one entry per affected package; a fix for ANY of them
-        // means the suppression deserves a second look, so take the first non-null.
-        const patched = (body.vulnerabilities ?? []).map((v) => v.first_patched_version).find((v) => v);
-        return [id, { first_patched_version: patched ?? null, withdrawn: Boolean(body.withdrawn_at) }];
+        // EVERY patched version and EVERY affected package, not just the first.
+        // An advisory carries one entry per affected package line, and a fix for
+        // any of them means the suppression deserves a second look — including a
+        // backport into a line the consumer can use, which is invisible if only
+        // the first entry is read.
+        const vulnerabilities = body.vulnerabilities ?? [];
+        return [
+          id,
+          normaliseAdvisory({
+            affectedPackages: vulnerabilities.map((v) => v.package?.name),
+            patchedVersions: vulnerabilities.map((v) => v.first_patched_version),
+            withdrawn: Boolean(body.withdrawn_at),
+          }),
+        ];
       } catch {
         return [id, null]; // unreachable — reported as unchecked, never as "still fine"
       }
@@ -672,15 +908,245 @@ async function advisoryStatus(ids) {
   return new Map(entries);
 }
 
+/** The lockfile's resolved section, read once — these guards run before install. */
+const lockText = (() => {
+  try {
+    const raw = readFileSync(join(ROOT, 'pnpm-lock.yaml'), 'utf8');
+    return raw;
+  } catch {
+    return '';
+  }
+})();
+
+/**
+ * EVERY version of `name` the lockfile resolves, in lockfile order.
+ *
+ * Reading only the FIRST match conflated two different questions: "is the
+ * assessed version still in the tree?" and "does another version pull the
+ * affected package?". pnpm keeps several versions of one package side by side
+ * whenever their ranges are incompatible, so the first match is decided by
+ * nothing but the order the lockfile happens to list them in. That mislabelled
+ * a real finding — a declaration naming 3.5.0 against a tree holding 3.4.1 AND
+ * 3.5.0 was reported as "moved from 3.5.0 to 3.4.1", though 3.5.0 had not moved
+ * anywhere — and it could have kicked a CORRECT declaration out over a second
+ * version that pulls nothing at all.
+ *
+ * So existence and relevance are now separated: this answers the first question,
+ * and the consumer-set check answers the second from the actual edges.
+ */
+function resolvedVersions(name) {
+  if (!lockText) {
+    return [];
+  }
+  const packagesAt = lockText.search(/^packages:\s*$/m);
+  const body = packagesAt === -1 ? lockText : lockText.slice(packagesAt);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const found = body.matchAll(new RegExp(`(?:^|[/'"\\s])${escaped}@(\\d[^(:'"\\s]*)`, 'gm'));
+  return [...new Set([...found].map((m) => m[1]))];
+}
+
+/**
+ * Who pulls `name` in — from BOTH halves of the lockfile.
+ *
+ * ## Why both halves, and why that was the bug
+ *
+ * A v9 lockfile answers "who depends on X" in two separate places, and the first
+ * version of this scanned only the second:
+ *
+ * - `importers:` — the dependencies the workspace itself declares, one block per
+ *   package (`.`, `projects/api`, `projects/app`).
+ * - `snapshots:` — the edges between resolved third-party packages.
+ *
+ * Reading only `snapshots:` made the MOST likely production path invisible: a
+ * DIRECT dependency of the project. Confirmed on nest-server's own lockfile,
+ * where `importers:` starts at line 28 and `snapshots:` at 5264 — everything the
+ * project declares about itself sat 5000 lines above the scan window. Since
+ * `ignoreGhsas` also removes the advisory from `pnpm audit`, nothing else would
+ * have mentioned it either.
+ *
+ * ## The two halves do not look alike
+ *
+ * They share their indentation but not their shape:
+ *
+ *     snapshots:                     importers:
+ *       'pkg@1.0.0':        (2)        projects/app:        (2)
+ *         dependencies:     (4)          dependencies:      (4)
+ *           dep: 1.0.0      (6)            dep:             (6)
+ *                                            specifier: 1.0.0
+ *                                            version: 1.0.0
+ *
+ * The difference that matters is the LAST line: an importer's package line carries
+ * no value after the colon — specifier and version sit underneath — so an edge
+ * rule demanding whitespace after the colon matches nothing there. Hence
+ * `(\s|$)`. The levels are spelled out per half anyway, so a future lockfile
+ * format that does move them is a one-line change rather than a silent miss.
+ *
+ * ## Fail-closed
+ *
+ * Returns `scanned: false` when neither section can be found. The caller turns
+ * that into RE-TEST, because "I could not check whether a second consumer exists"
+ * must not read the same as "there is none" — the first version returned an empty
+ * list here and silently passed.
+ *
+ * ## What counts as an edge, stated honestly
+ *
+ * `dependencies`, `devDependencies` and `optionalDependencies` count;
+ * `peerDependencies` and `transitivePeerDependencies` do not. That is NOT the
+ * same as "no peer edge counts": in a v9 snapshot a RESOLVED peer is written
+ * into `dependencies:` like any other edge — verified on `@nestjs/core`, whose
+ * peers `@nestjs/common`, `reflect-metadata` and `rxjs` all appear there. So
+ * this over-counts rather than under-counts, and the error lands on the safe
+ * side: an extra RE-TEST asks for a second look at a suppression, where a missed
+ * edge would hide a consumer nobody assessed.
+ */
+function dependentsOf(name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const DEPENDENCY_SECTIONS = new Set(['dependencies', 'devDependencies', 'optionalDependencies']);
+  const halves = [
+    { edge: 6, header: /^importers:\s*$/m, key: 2, section: 4, workspace: true },
+    { edge: 6, header: /^snapshots:\s*$/m, key: 2, section: 4, workspace: false },
+  ];
+
+  const parents = new Set();
+  let scanned = false;
+
+  for (const half of halves) {
+    const at = lockText.search(half.header);
+    if (at === -1) {
+      continue;
+    }
+    scanned = true;
+    const keyRe = new RegExp(`^ {${half.key}}('[^']+'|[^\\s:][^:]*):\\s*(\\{\\})?\\s*$`);
+    const sectionRe = new RegExp(`^ {${half.section}}([a-zA-Z]+):\\s*$`);
+    // `(\s|$)` — an importer's package line ends at the colon, a snapshot's
+    // carries the version after it.
+    const edgeRe = new RegExp(`^ {${half.edge}}'?${escaped}'?:(\\s|$)`);
+    let current = null;
+    let section = null;
+
+    for (const line of lockText.slice(at).split('\n')) {
+      // A later top-level section ends this half.
+      if (/^[a-zA-Z]/.test(line) && !half.header.test(line)) {
+        if (current !== null || section !== null) {
+          break;
+        }
+        continue;
+      }
+      const key = line.match(keyRe);
+      if (key) {
+        current = key[1].replace(/^'|'$/g, '');
+        section = null;
+        continue;
+      }
+      const sub = line.match(sectionRe);
+      if (sub) {
+        section = sub[1];
+        continue;
+      }
+      if (current && section && DEPENDENCY_SECTIONS.has(section) && edgeRe.test(line)) {
+        parents.add(
+          half.workspace
+            ? // The workspace package itself, named by its path as the lockfile spells it.
+              `the workspace package '${current}'`
+            : // VERSION KEPT. Only the `(peer)(peer)` suffix is cut. Comparing by
+              // NAME alone was a second shape of the same blind spot: two versions
+              // of one consumer both pulling the vulnerable package, with only one
+              // of them assessed, passed — and which one won depended on the order
+              // the lockfile happened to list them in.
+              current.replace(/\(.*$/, ''),
+        );
+      }
+    }
+  }
+
+  return { parents: [...parents], scanned };
+}
+
+/** Suppressions accepted because the published fix is provably unusable (reported, never silent). */
+const trackedResiduals = [];
+/** Declared-unusable suppressions whose justification may have expired — each fails the run. */
+const staleResiduals = [];
+
 if (suppressed.length > 0) {
   const status = await advisoryStatus(suppressed);
   for (const id of suppressed) {
     const info = status.get(id);
     if (!info) {
       uncheckedSuppressions.push(id);
-    } else if (info.withdrawn || info.first_patched_version) {
-      obsoleteSuppressions.push({ id, ...info });
+      continue;
     }
+    // A WITHDRAWN advisory needs no suppression at all, whatever is declared about
+    // it — there is nothing left to be unfixable about.
+    if (info.withdrawn) {
+      obsoleteSuppressions.push({ id, ...info });
+      continue;
+    }
+    if (info.patchedVersions.length === 0) {
+      continue;
+    }
+    const raw = residualDeclarations[id];
+    if (!raw) {
+      obsoleteSuppressions.push({ id, ...info });
+      continue;
+    }
+    const { assessedAt, consumer, rejected } = parseResidual(raw);
+    const present = resolvedVersions(consumer);
+    const note = (reason) => staleResiduals.push({ consumer, id, reason, versions: info.patchedVersions });
+
+    if (present.length === 0) {
+      note(`no ${consumer} in the tree any more, so the suppression is moot`);
+      continue;
+    }
+    // Only the ABSENCE of the assessed version is a move. A second version
+    // sitting next to it is not news by itself — whether it matters depends on
+    // whether it pulls the affected package, which the consumer-set check below
+    // decides from the edges rather than from the package list.
+    if (!present.includes(assessedAt)) {
+      note(`${consumer} moved from ${assessedAt} to ${present.join(', ')}`);
+      continue;
+    }
+    // THE BACKPORT CHECK. A fix in a line the consumer CAN use leaves the
+    // consumer's version untouched, so nothing above notices it.
+    const unassessed = info.patchedVersions.filter((v) => !rejected.includes(v));
+    if (unassessed.length > 0) {
+      note(
+        `the advisory now offers ${unassessed.join(', ')}, which was never assessed (rejected: ${rejected.join(', ') || 'nothing recorded'})`,
+      );
+      continue;
+    }
+    // THE CONSUMER-SET CHECK. `ignoreGhsas` hides the finding everywhere, so any
+    // new way the vulnerable package enters the tree would otherwise be silent.
+    //
+    // The invariant is deliberately strict: EVERY parent of an affected package
+    // must be exactly the declared consumer AT THE ASSESSED VERSION. Anything
+    // else — a different package, a workspace package depending on it directly,
+    // or the SAME consumer at another version — is a path nobody assessed, and
+    // the declaration's entire argument is "only this one". Comparing by name
+    // alone let `@nuxt/devtools@3.5.0` ride along on a declaration written for
+    // 3.4.1, with the winner decided by the order the lockfile listed them in.
+    const expected = `${consumer}@${assessedAt}`;
+    const scans = info.affectedPackages.map((affected) => ({ affected, ...dependentsOf(affected) }));
+    if (info.affectedPackages.length === 0 || scans.some((scan) => !scan.scanned)) {
+      // Fail-closed. "I could not check" must never read like "there is nothing
+      // to find" — an empty answer used to pass here in silence.
+      note(
+        `the lockfile could not be read for ${info.affectedPackages.join(', ') || 'the affected package'}, so the one-consumer claim is unverifiable`,
+      );
+      continue;
+    }
+    const allParents = [...new Set(scans.flatMap((scan) => scan.parents))];
+    if (allParents.length === 0) {
+      note(`nothing pulls ${info.affectedPackages.join(', ')} any more, so the suppression is moot`);
+      continue;
+    }
+    const others = allParents.filter((parent) => parent !== expected);
+    if (others.length > 0) {
+      note(
+        `${others.join(', ')} also pull${others.length === 1 ? 's' : ''} an affected package, so "only ${expected}" no longer holds`,
+      );
+      continue;
+    }
+    trackedResiduals.push({ consumer, id, rejected, version: assessedAt });
   }
 }
 
@@ -691,7 +1157,13 @@ if (suppressed.length > 0) {
 const unused = [];
 const lockPath = join(ROOT, 'pnpm-lock.yaml');
 if (existsSync(lockPath)) {
-  const lock = readFileSync(lockPath, 'utf8');
+  // Only the RESOLVED part of the lockfile may answer "is it in the tree". pnpm copies every
+  // override into the lockfile's own top-level `overrides:` block, so a search of the whole file
+  // found each override in its own echo and this class could never fire on a real lockfile — only
+  // on test fixtures that lacked the header. `packages:` (v9) / the package keys (v6) start below it.
+  const raw = readFileSync(lockPath, 'utf8');
+  const packagesAt = raw.search(/^packages:\s*$/m);
+  const lock = packagesAt === -1 ? raw : raw.slice(packagesAt);
   for (const key of Object.keys(overrides)) {
     const module = targetPackage(key);
     // Lockfile entries are keyed `/name@version` (v6+) or `name@version:` (v9+).
@@ -775,6 +1247,7 @@ if (
   ciUnverified ||
   strandedKeys.length > 0 ||
   obsoleteSuppressions.length > 0 ||
+  staleResiduals.length > 0 ||
   tooLow.length > 0 ||
   notMatching.length > 0
 ) {
@@ -793,7 +1266,23 @@ if (
     console.error(
       `  ✗ FIX AVAILABLE ${entry.id} — ${why}.\n` +
         `      The suppression in auditConfig.ignoreGhsas is obsolete: take the fix\n` +
-        `      and remove the entry. https://github.com/advisories/${entry.id}\n`,
+        `      and remove the entry. https://github.com/advisories/${entry.id}\n` +
+        (entry.withdrawn
+          ? ''
+          : `      If the fix exists but the consumer provably cannot use it, exhaust the\n` +
+            `      ladder first (raise the consumer, raise the framework, patch it) and only\n` +
+            `      then declare it, which makes the exception expire by itself:\n` +
+            `        auditConfig.unusableFixConsumers.${entry.id}: ` +
+            `'<consumer>@<version> cannot use ${entry.first_patched_version}'\n`),
+    );
+  }
+  for (const entry of staleResiduals) {
+    console.error(
+      `  ✗ RE-TEST      ${entry.id} — declared as an unusable fix, but ${entry.reason}.\n` +
+        `      The reason for the suppression may be gone. Re-test whether ` +
+        `${entry.versions.join(' / ')} works now;\n` +
+        `      take the fix if it does, otherwise update the declaration in\n` +
+        `      auditConfig.unusableFixConsumers. https://github.com/advisories/${entry.id}\n`,
     );
   }
   for (const entry of tooLow) {
@@ -817,6 +1306,9 @@ if (
   if (obsoleteSuppressions.length > 0) {
     parts.push(`${obsoleteSuppressions.length} obsolete suppression(s)`);
   }
+  if (staleResiduals.length > 0) {
+    parts.push(`${staleResiduals.length} suppression(s) needing a re-test`);
+  }
   if (ciUnverified) {
     parts.push(`${uncheckedSuppressions.length} unverified suppression(s) under CI`);
   }
@@ -830,10 +1322,35 @@ const covered = advisories.filter((a) =>
 
 const verifiedSuppressions = suppressed.length - uncheckedSuppressions.length;
 
+// Named on the GREEN path, deliberately. A residual accepted because the fix is
+// unusable is the one kind that can stop being true without anything in this repo
+// changing — upstream only has to adapt. Printing it every run is what keeps it
+// from settling into the background; a silent pass would look identical to
+// "no fix exists".
+for (const entry of trackedResiduals) {
+  console.log(
+    `${TAG} residual ${entry.id} — ${entry.rejected.join(' / ')} exists but ` +
+      `${entry.consumer}@${entry.version} cannot use it; re-checked every run ` +
+      `(consumer version, newly published fixes, second consumer).`,
+  );
+}
+
+if (auditUnavailable) {
+  // Never the ok line: the overrides were not checked. The suppression count is the part of this
+  // run that DID verify something, so it is stated rather than left to be inferred.
+  console.warn(
+    `${TAG} WARN — could not obtain an audit report, so the ${overrideCount} override(s) were NOT verified` +
+      (suppressed.length > 0 ? `; ${verifiedSuppressions}/${suppressed.length} suppression(s) verified` : '') +
+      '.',
+  );
+  process.exit(0);
+}
+
 console.log(
   `${TAG} ok — ${overrideCount} override(s) checked against ${advisories.length} advisory/advisories ` +
     `from ${source}; ${covered} of them land on an overridden package and none is failing` +
     (suppressed.length > 0
-      ? `; ${verifiedSuppressions}/${suppressed.length} suppression(s) confirmed to still have no fix`
+      ? `; ${verifiedSuppressions}/${suppressed.length} suppression(s) verified` +
+        (trackedResiduals.length > 0 ? ` (${trackedResiduals.length} as unusable-fix residual)` : '')
       : ''),
 );

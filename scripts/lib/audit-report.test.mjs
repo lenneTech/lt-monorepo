@@ -17,6 +17,7 @@ import { after, describe, it } from 'node:test';
 import {
   advisoryBulkUrl,
   auditVerdict,
+  configuredRegistry,
   countSuppressions,
   countUnlisted,
   countUnlistedBySeverity,
@@ -410,6 +411,32 @@ describe('advisoryBulkUrl', () => {
     for (const empty of ['', '   ', null, undefined]) {
       assert.match(advisoryBulkUrl(empty), /^https:\/\/registry\.npmjs\.org\//, String(empty));
     }
+  });
+});
+
+describe('configuredRegistry', () => {
+  it('reads pnpm_config_registry, the variable pnpm 11 audits against', () => {
+    assert.equal(
+      configuredRegistry({ pnpm_config_registry: ' https://npm.internal.example/ ' }),
+      'https://npm.internal.example/',
+    );
+    assert.equal(
+      configuredRegistry({ PNPM_CONFIG_REGISTRY: 'https://npm.internal.example/' }),
+      'https://npm.internal.example/',
+    );
+  });
+
+  it('ignores npm_config_registry, which pnpm 11 does not audit against', () => {
+    // Measured 2026-10-06 with pnpm 11.14.0: with npm_config_registry pointing at a dead port,
+    // `pnpm audit --json` still returned a normal report from npmjs.org. A probe that followed
+    // the variable asked a registry the audit never talked to, and a stub answering there turned
+    // an unreachable audit registry into "clean" (SEC-001, wave 2b review).
+    const dead = 'http://127.0.0.1:9/';
+    assert.notEqual(configuredRegistry({ NPM_CONFIG_REGISTRY: dead, npm_config_registry: dead }), dead);
+    assert.equal(
+      configuredRegistry({ npm_config_registry: dead, pnpm_config_registry: 'https://npm.internal.example/' }),
+      'https://npm.internal.example/',
+    );
   });
 });
 
