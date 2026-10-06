@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.14.2](https://github.com/lenneTech/lt-monorepo/compare/v3.14.1...v3.14.2) (2026-10-06)
+
+### Bug Fixes
+
+* **scripts:** sync check-overrides with nest-server 40073c2, follow pnpm_config_registry ([d0d43b9](https://github.com/lenneTech/lt-monorepo/commit/d0d43b9f0c21da6d5c9a83b0eac361ee94365e27))
+
+### Documentation
+
+* **claude:** name useLtAuth/useLtAuthClient instead of the removed useBetterAuth ([a27efe0](https://github.com/lenneTech/lt-monorepo/commit/a27efe033ad3f18eb329c62dab510818b216d447))
+
 ## [3.14.1](https://github.com/lenneTech/lt-monorepo/compare/v3.14.0...v3.14.1) (2026-09-28)
 
 ### Bug Fixes
