@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.14.3](https://github.com/lenneTech/lt-monorepo/compare/v3.14.2...v3.14.3) (2026-10-06)
+
+### Bug Fixes
+
+* **scripts:** check:audit and the pnpm pin proof run on Windows ([1ccae21](https://github.com/lenneTech/lt-monorepo/commit/1ccae21dc628f15aa0f18bdf0ff29c45a4a7d68c))
+
 ## [3.14.2](https://github.com/lenneTech/lt-monorepo/compare/v3.14.1...v3.14.2) (2026-10-06)
 
 ### Bug Fixes
