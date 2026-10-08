@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @lt-check-wrapper 3.14.3
+// @lt-check-wrapper 3.15.0
 /**
  * Quiet, report-driven wrapper around the project `check` pipeline.
  *

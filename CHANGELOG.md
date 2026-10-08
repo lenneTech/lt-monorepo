@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.15.0](https://github.com/lenneTech/lt-monorepo/compare/v3.14.3...v3.15.0) (2026-10-08)
+
+### Features
+
+* **ci:** type-check app and test code in the lint job ([14ad4b7](https://github.com/lenneTech/lt-monorepo/commit/14ad4b7f63c48f02677fa1c97f349e4907010ab0))
+
+### Chores
+
+* **deps:** raise oxlint to 1.87.0 and oxfmt to 0.72.0, refresh changelog tooling ([8c72b52](https://github.com/lenneTech/lt-monorepo/commit/8c72b52e3d905eaf873d1cad3c8e5f974ea63582))
+
 ## [3.14.3](https://github.com/lenneTech/lt-monorepo/compare/v3.14.2...v3.14.3) (2026-10-06)
 
 ### Bug Fixes
