@@ -53,8 +53,8 @@
     "commit-and-tag-version": "13.2.1",
     "cross-env": "10.1.0",
     "husky": "9.1.7",
-    "oxfmt": "0.70.0",
-    "oxlint": "1.85.0"
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0"
   },
   "engines": {
     "node": ">= 22",

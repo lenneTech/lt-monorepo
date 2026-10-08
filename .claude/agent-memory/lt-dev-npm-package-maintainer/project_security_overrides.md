@@ -1,6 +1,6 @@
 ---
 name: Security overrides for commit-and-tag-version transitive deps
-description: The one live override (brace-expansion 1.x, now <1.1.21 -> 1.1.21), why it must be re-checked against the newest 1.x every run, and the two-fresh-resolves test; verified 2026-09-28
+description: The one live override (brace-expansion 1.x, now <1.1.21 -> 1.1.21), why it must be re-checked against the newest 1.x every run, and the two-fresh-resolves test; last verified 2026-10-09
 metadata:
   type: project
 ---
@@ -9,7 +9,7 @@ Overrides live in **`pnpm-workspace.yaml` → `overrides:`**, not `package.json`
 (pnpm 11 ignores the `pnpm` block there). Same for `auditConfig`,
 `minimumReleaseAgeExclude` and `allowBuilds`.
 
-## Active as of 2026-09-28
+## Active as of 2026-09-28 (re-verified 2026-10-09)
 
 - `'brace-expansion@<1.1.21': '1.1.21'` (+ `minimumReleaseAgeExclude: brace-expansion@1.1.21`,
   which moves in lockstep per its comment) — closes GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg,
@@ -20,6 +20,8 @@ Overrides live in **`pnpm-workspace.yaml` → `overrides:`**, not `package.json`
 - History: was `<1.1.18 → 1.1.18` until 2026-09-28, when 1.1.19–1.1.21 (published 2026-09-14,
   pure DoS hardening in index.js, same publisher, no dep change) had turned it into a
   downgrade lock. Raised, not removed.
+- 2026-10-09: 1.1.21 still newest 1.x; two fresh resolves (with/without overrides+auditConfig)
+  gave identical package sets, both audit-clean -> still INERT, left unchanged (comment dates too).
 
 **Every run: `npm view brace-expansion versions` — if a 1.x newer than the target exists, raise
 key and target (and the exclude entry) together.** `pnpm run check` / `check:overrides` does NOT
@@ -51,6 +53,20 @@ the same way and confirm its package set equals the stripped resolve.
 
 `pnpm install` in the repo does re-resolve after the override key changes (the lockfile's
 `overrides:` section is invalidated) — confirm with `pnpm why brace-expansion`.
+
+## Lockfile drift the fresh resolve also reveals
+
+Comparing the repo lockfile against the fresh `withOv` resolve shows in-range transitive drift.
+2026-10-09: 7 commit-and-tag-version transitives were one release behind (conventional-commits-parser
+7.1.2→7.1.3, conventional-changelog-writer 9.2.1→9.3.0, fast-xml-parser 5.11.0→5.11.2, yaml
+2.9.0→2.9.1, argue-cli 3.1.0→3.2.0 (+verkit), @nodable/entities 3.0.0→3.1.0), no advisory.
+Refreshed the same day before release 3.14.4.
+
+How to refresh: `pnpm update --depth Infinity`, then `pnpm dedupe` — `update` alone left a stale
+`argue-cli@3.1.0` beside 3.2.0 (`pnpm dedupe --check` names it). The second
+`@conventional-changelog/git-client` (3.1.0 next to 3.2.0) is legitimate: commit-and-tag-version
+pins 3.1.0 exactly. Because these packages generate the CHANGELOG, diff the output of
+`pnpm exec commit-and-tag-version --dry-run` before and after; on 2026-10-09 it was identical.
 
 ## Deprecated transitive deps (internal to commit-and-tag-version, no advisory)
 
