@@ -36,6 +36,9 @@ jobs:
       - run: node scripts/check-ci-consistency.mjs
       - run: pnpm run format:check
       - run: pnpm run lint
+      # Type gate — mirrors the GitLab `lint` job. See the comment there for why
+      # it is a CI step and why the root script runs `typecheck:tests` as well.
+      - run: pnpm run typecheck
 
   # Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING,
   # exactly like the GitLab `audit` job.

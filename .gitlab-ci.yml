@@ -88,6 +88,14 @@ lint:
     - node scripts/check-ci-consistency.mjs
     - pnpm run format:check
     - pnpm run lint
+    # Type gate. `check` runs `typecheck` / `typecheck:tests` in every project, but
+    # CI never runs `check` — so without this step a type error reaches `dev`
+    # unseen: `nuxt build` only transpiles, vitest and Playwright transpile without
+    # checking, and the API's `tsc` build excludes its specs. The root script runs
+    # both script names, because `pnpm -r run typecheck` alone silently skips a
+    # package that only declares `typecheck:tests` (the API starter does).
+    # `--if-present` keeps a project without them (e.g. an Angular frontend) green.
+    - pnpm run typecheck
 
 # Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING.
 #

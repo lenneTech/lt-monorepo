@@ -40,6 +40,7 @@
     "app:test": "cd projects/app && pnpm run test",
     "lint": "oxlint scripts/ && pnpm -r --parallel run lint",
     "lint:fix": "oxlint --fix scripts/ && pnpm -r --parallel run lint:fix",
+    "typecheck": "pnpm -r --parallel --if-present run typecheck && pnpm -r --parallel --if-present run typecheck:tests",
     "format": "oxfmt --write scripts/ && pnpm -r --parallel run format",
     "format:check": "oxfmt --check scripts/ && pnpm -r --parallel run format:check",
     "reinit": "node scripts/remove.mjs node_modules pnpm-lock.yaml && pnpm install && pnpm -r --parallel run reinit",
