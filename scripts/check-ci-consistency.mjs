@@ -335,7 +335,7 @@ function checkE2eResetPermission({ body, globalVars, label, rule, services, vars
 /**
  * pnpm/yarn subcommands, so a bare `pnpm <word>` is not mistaken for a script name.
  *
- * Kept in sync with `pnpm help -a` (11.14.0). The omission that motivated this list being
+ * Kept in sync with `pnpm help -a` (11.14.0; unchanged in 11.28.5, re-checked 2026-10-09). The omission that motivated this list being
  * audited rather than appended to: `peers` was missing while `pnpm peers check` was being
  * added to this repo's own check chains, so the parser read the invocation as
  * `pnpm run peers` and demanded a `peers` script — a fabricated failure on a correct

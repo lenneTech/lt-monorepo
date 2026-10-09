@@ -98,6 +98,9 @@
  * version the repo does not run is itself a watchman looking in the wrong place.
  * Counted in `.../corepack/v1/pnpm/11.13.1/artifacts/exe/dist/pnpm.mjs`:
  * `ignoreCves` 0, `ignoreGhsas` 11, `auditConfig` 8, `--ignore-unfixable` present.
+ * Re-counted 2026-10-09 after the pin moved to 11.28.5, in
+ * `.../corepack/v1/pnpm/11.28.5/dist/pnpm.mjs`: `ignoreCves` 0, `ignoreGhsas` 23,
+ * `auditConfig` 28, `--ignore-unfixable` present — same picture.
  *
  * Recording the version is the point. A warning about behaviour the pinned pnpm
  * no longer has is itself a watchman looking in the wrong place — the failure
@@ -616,7 +619,7 @@ function configuredRegistry() {
   // The probe must ask the registry the AUDIT used, so it reads the variable the audit reads.
   // Under pnpm 11 that is `pnpm_config_registry`; `npm_config_registry` is IGNORED by both
   // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.13.1
-  // upstream and 11.14.0 (this repository's pin) here:
+  // upstream and 11.14.0 (then this repository's pin) here, re-measured 2026-10-09 with 11.28.5:
   //
   //   pnpm_config_registry=http://127.0.0.1:9/ pnpm audit --json   {"error": … "fetch failed"}
   //   npm_config_registry=http://127.0.0.1:9/  pnpm audit --json   a normal report from npmjs.org

@@ -135,7 +135,8 @@ export function advisoryBulkUrl(registry) {
 export function configuredRegistry(env = process.env) {
   // The probe must ask the registry the AUDIT used, so it reads the variable the audit reads.
   // Under pnpm 11 that is `pnpm_config_registry`; `npm_config_registry` is IGNORED by both
-  // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.14.0:
+  // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.14.0,
+  // re-measured 2026-10-09 with 11.28.5:
   //
   //   pnpm_config_registry=http://127.0.0.1:9/ pnpm audit --json   {"error": … "fetch failed"}
   //   npm_config_registry=http://127.0.0.1:9/  pnpm audit --json   a normal report from npmjs.org
