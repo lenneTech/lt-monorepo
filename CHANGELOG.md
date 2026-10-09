@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.15.1](https://github.com/lenneTech/lt-monorepo/compare/v3.15.0...v3.15.1) (2026-10-09)
+
+### Bug Fixes
+
+* **scripts:** run the pnpm provisioning probe outside the project ([8adf054](https://github.com/lenneTech/lt-monorepo/commit/8adf054945a06051f8fc65f52d7945da43dacf6a))
+
+### Chores
+
+* **deps:** raise pnpm to 11.28.5 ([d7ec258](https://github.com/lenneTech/lt-monorepo/commit/d7ec258c2043b3bf7134a116346388508a3e4a84))
+
 ## [3.15.0](https://github.com/lenneTech/lt-monorepo/compare/v3.14.3...v3.15.0) (2026-10-08)
 
 ### Features
