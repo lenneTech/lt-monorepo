@@ -76,7 +76,9 @@ const runIn = (root, script) =>
 const runReal = (script) =>
   assertDidNotCrash(spawnSync('node', [join(SCRIPTS, script)], { cwd: REPO, encoding: 'utf8' }), script);
 
-// The pin this repo actually uses, so fixtures stay realistic.
+// A real, published pin, so fixtures stay realistic. Do NOT keep it in step with the repo's own
+// pin: a fixture pin that differs from the caller's cwd is what exposed the provisioning probe
+// reading `packageManager` from the wrong directory (see check-packagemanager-pin.mjs, step 4).
 const VALID_PIN =
   'pnpm@11.14.0+sha512.66c1ac4c7d4762d6d7dde44c7f3e5a73591ed0a0806e751d4ed32d4f004f25b2285a906b1fd8a9e3e621df3b4e2858bf88e50e0cf626bedbe977fe434a5caf85';
 

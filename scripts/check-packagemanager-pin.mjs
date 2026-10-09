@@ -251,9 +251,15 @@ if (process.env.CI || process.env.PIN_PROVISION_TEST) {
         stdio: 'pipe',
         timeout: 180_000,
       });
+      // cwd MUST be outside every project. pnpm 11 reads `packageManager` from the working
+      // directory and switches to that version on its own, so a probe run in ROOT (or in an
+      // inherited cwd) answers with the pin whatever npm installed — measured 2026-10-09:
+      // pnpm 11.14.0 asked from this repo (pin 11.28.5) printed 11.28.5. The prefix is a
+      // throwaway temp directory with no package.json above it.
       const probe = commandPlan(provisionedPnpmPath(prefix), ['--version']);
       const version = execFileSync(probe.file, probe.args, {
         ...probe.options,
+        cwd: prefix,
         encoding: 'utf8',
         timeout: 30_000,
       }).trim();
