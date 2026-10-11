@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.15.2](https://github.com/lenneTech/lt-monorepo/compare/v3.15.1...v3.15.2) (2026-10-11)
+
+### Bug Fixes
+
+* **lint:** keep the template's scripts free of lint warnings ([7a90590](https://github.com/lenneTech/lt-monorepo/commit/7a9059076293a98497e027c5c26fcf2d56ff2760))
+
 ## [3.15.1](https://github.com/lenneTech/lt-monorepo/compare/v3.15.0...v3.15.1) (2026-10-09)
 
 ### Bug Fixes
