@@ -10,8 +10,10 @@
     "node": true
   },
   "rules": {
-    "eqeqeq": "warn",
-    "no-console": "off"
+    "eqeqeq": ["warn", "always", { "null": "ignore" }],
+    "no-console": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off"
   },
   "ignorePatterns": ["node_modules", "projects", ".nuxt-check"]
 }
