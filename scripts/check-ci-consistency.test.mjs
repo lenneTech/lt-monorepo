@@ -554,14 +554,154 @@ describe('scriptInvocations parsing', () => {
     assert.deepEqual(calls, [{ dir: 'projects/api', kind: 'direct', script: 'migrate:up' }]);
   });
 
-  it('stops carrying a cd at the next sequence item', () => {
-    // A new `- ` entry is a new shell. The old fixture used exactly this shape to
-    // "prove" that cd never carries across lines — but it cannot distinguish the
-    // two behaviours: the cd is consumed by the first match, and the second line
-    // falls back to '.' either way. A mutation making cd fully sticky survived it.
+  it('stops carrying a cd at the next sequence item — the GitHub Actions shell model', () => {
+    // Each `- run:` step is its own shell invocation there, so a cd genuinely dies
+    // with the step. This is the DEFAULT because it is the conservative reading.
+    // The old fixture used exactly this shape to "prove" that cd never carries
+    // across lines — but it cannot distinguish the two behaviours: the cd is
+    // consumed by the first match, and the second line falls back to '.' either
+    // way. A mutation making cd fully sticky survived it.
     const calls = scriptInvocations('    - cd projects/api && pnpm run build\n    - pnpm run lint\n');
     assert.deepEqual(calls[0], { dir: 'projects/api', kind: 'direct', script: 'build' });
     assert.deepEqual(calls[1], { dir: '.', kind: 'direct', script: 'lint' });
+  });
+
+  /**
+   * GitLab does NOT work that way, and reading it as if it did produced two false
+   * positives against a generated project (lt-crm, DEV-2997). GitLab concatenates
+   * the items of a `script:` block into ONE shell script, so a `cd` on one item is
+   * still in effect on the next. Its `app:test` relied on exactly that:
+   *
+   *     - cd projects/api && pnpm run build
+   *     - pnpm run start:e2e:dist > "$NEST_SERVER_LOG" 2>&1 &
+   *     - cd ../..
+   *
+   * Read per-item, the second line looks like a workspace-root call to a script
+   * that only `projects/api` defines — reported as "dies on ERR_PNPM_NO_SCRIPT"
+   * for a job that had been green all along. The `cd ../..` on the third line is
+   * the proof: it is only meaningful if the first cd is still in effect.
+   */
+  it('DOES carry a cd across sequence items when the shell spans the block (GitLab)', () => {
+    const calls = scriptInvocations('    - cd projects/api && pnpm run build\n    - pnpm run start:e2e:dist\n', {
+      carryAcrossItems: true,
+    });
+    assert.deepEqual(calls, [
+      { dir: 'projects/api', kind: 'direct', script: 'build' },
+      { dir: 'projects/api', kind: 'direct', script: 'start:e2e:dist' },
+    ]);
+  });
+
+  it('follows a cd back out again', () => {
+    // The call right after `cd ../..` is the assertion that matters. With a third
+    // item that cds on its own, a parser carrying the literal `../..` passed this
+    // test, and every root call after it was skipped instead of checked.
+    const calls = scriptInvocations(
+      '    - cd projects/api && pnpm run build\n    - cd ../..\n    - pnpm run lint\n' +
+        '    - cd projects/app && pnpm run test:unit\n    - cd "$CI_PROJECT_DIR"\n    - pnpm run typecheck\n',
+      { carryAcrossItems: true },
+    );
+    assert.deepEqual(calls, [
+      { dir: 'projects/api', kind: 'direct', script: 'build' },
+      { dir: '.', kind: 'direct', script: 'lint' },
+      { dir: 'projects/app', kind: 'direct', script: 'test:unit' },
+      { dir: '.', kind: 'direct', script: 'typecheck' },
+    ]);
+  });
+
+  /**
+   * A cd that the shell confines to a subshell must not carry, or the GitLab model
+   * breaks both ways on the template's own idiom (`.gitlab-ci.yml`, app:test): the
+   * next root call is blamed on the sub-project (a false failure on a working
+   * pipeline), and a call that really dies on ERR_PNPM_NO_SCRIPT at the root is
+   * attributed to the sub-project that has it (a broken pipeline reported green).
+   */
+  it('ends a cd with its subshell, even when carrying', () => {
+    const carry = { carryAcrossItems: true };
+    assert.deepEqual(
+      scriptInvocations('    - (cd projects/api && pnpm run migrate:up)\n    - pnpm run start:e2e:dist\n', carry)[1],
+      { dir: '.', kind: 'direct', script: 'start:e2e:dist' },
+    );
+    assert.deepEqual(
+      scriptInvocations(
+        '    - if [ "${CI_NODE_INDEX:-1}" = "1" ]; then (cd projects/app && pnpm run test:unit); fi\n    - pnpm run api:test\n',
+        carry,
+      ),
+      [
+        { dir: 'projects/app', kind: 'direct', script: 'test:unit' },
+        { dir: '.', kind: 'direct', script: 'api:test' },
+      ],
+    );
+    // On one line too: the call after the `)` runs where the subshell started.
+    assert.deepEqual(scriptInvocations('    - (cd projects/api && pnpm run build) && pnpm run lint\n'), [
+      { dir: 'projects/api', kind: 'direct', script: 'build' },
+      { dir: '.', kind: 'direct', script: 'lint' },
+    ]);
+  });
+
+  it('ends a cd with a list sent to the background', () => {
+    // `cd x && cmd &` runs the WHOLE list in a background subshell; `cd x; cmd &`
+    // backgrounds only `cmd`, so that cd does stay. `2>&1` is a redirect, not `&`.
+    const carry = { carryAcrossItems: true };
+    assert.deepEqual(
+      scriptInvocations(
+        '    - cd projects/api && pnpm run start:e2e:dist > "$LOG" 2>&1 &\n    - pnpm run lint\n',
+        carry,
+      ),
+      [
+        { dir: 'projects/api', kind: 'direct', script: 'start:e2e:dist' },
+        { dir: '.', kind: 'direct', script: 'lint' },
+      ],
+    );
+    assert.deepEqual(scriptInvocations('    - cd projects/api; pnpm run build &\n    - pnpm run lint\n', carry)[1], {
+      dir: 'projects/api',
+      kind: 'direct',
+      script: 'lint',
+    });
+  });
+
+  it('still resets the carried cd at a new mapping key, even when carrying', () => {
+    // `after_script:` is a separate shell in GitLab too, so the carry must not
+    // leak across the key boundary.
+    const calls = scriptInvocations(
+      '  script:\n    - cd projects/api && pnpm run build\n  after_script:\n    - pnpm run lint\n',
+      { carryAcrossItems: true },
+    );
+    assert.deepEqual(calls[1], { dir: '.', kind: 'direct', script: 'lint' });
+  });
+
+  it('applies the GitLab model to .gitlab-ci.yml and the GitHub model to workflows (end to end)', () => {
+    // The unit cases above prove the parser can do both. This one proves each
+    // pipeline is READ with its own model: the same two items must hold on GitLab
+    // and fire on GitHub, where the second `run:` really is a fresh shell in the root.
+    // A root package.json too: without one the root call is SKIPPED, not failed, and the
+    // GitHub half would pass for the wrong reason.
+    const packages = {
+      '.': { build: 'pnpm -r run build' },
+      'projects/api': { build: 'nest build', 'start:e2e:dist': 'node dist/main.js' },
+    };
+    const gitlab = run({
+      gitlab:
+        'app:test:\n  stage: test\n  script:\n    - cd projects/api && pnpm run build\n    - pnpm run start:e2e:dist\n',
+      packages,
+    });
+    assert.ok(
+      armed(gitlab, '`start:e2e:dist` exists in projects/api'),
+      'GitLab must attribute the call to projects/api',
+    );
+    assert.equal(failed(gitlab, '`start:e2e:dist` exists'), false);
+
+    const github = run({
+      github: {
+        'test.yml':
+          'jobs:\n  app-test:\n    runs-on: ubuntu-latest\n    steps:\n' +
+          '      - run: cd projects/api && pnpm run build\n      - run: pnpm run start:e2e:dist\n',
+      },
+      packages,
+    });
+    assert.ok(
+      failed(github, '`start:e2e:dist` exists in the workspace root'),
+      'GitHub must read each run: as its own shell',
+    );
   });
 
   it('DOES carry a cd across lines of a block scalar', () => {

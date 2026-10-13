@@ -81,7 +81,7 @@
  * Exit code: 0 when every rule holds, 1 otherwise.
  */
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { packageDirsByName, workspacePackageDirs } from './lib/workspace-packages.mjs';
@@ -450,6 +450,21 @@ function unquote(word) {
 }
 
 /**
+ * Where `cd <target>` lands when run from `from` (repo-relative; `null` is the root).
+ * A relative target resolves against `from` the way the shell resolves it: `cd ../..`
+ * out of `projects/api` is the root, not a directory named `../..`. The CI checkout
+ * variables are the root too. Anything else this cannot place — an absolute path, `~`,
+ * `-`, another variable — is kept as written, so its calls still surface as skips.
+ */
+function resolveCd(from, target) {
+  const checkout = /^\$(?:CI_PROJECT_DIR|GITHUB_WORKSPACE|\{(?:CI_PROJECT_DIR|GITHUB_WORKSPACE)\})(?=\/|$)/;
+  const trim = (dir) => dir.replace(/(.)\/+$/, '$1');
+  if (checkout.test(target)) return trim(posix.join('.', target.replace(checkout, '.')));
+  if (/^[/~-]/.test(target) || target.includes('$')) return target;
+  return trim(posix.join(from ?? '.', target));
+}
+
+/**
  * Every package-manager script invocation in a pipeline body, with its target.
  *
  * Three things this has to get right, each learned from a way the first version
@@ -460,8 +475,9 @@ function unquote(word) {
  *    (.gitlab-ci.yml and .github/workflows/test.yml, the Playwright step). The
  *    first version scoped `cd` to a single line and justified it with "each entry
  *    is its own shell invocation" — true for list items, false for block scalars.
- *    The carry is therefore reset at each new sequence item (`- …`) and each new
- *    mapping key (`key:`), and carried otherwise.
+ *    The carry is therefore reset at each new mapping key (`key:`) and carried
+ *    otherwise. Whether it is also reset at a new sequence item (`- …`) depends on
+ *    the CI system — see `carryAcrossItems` below.
  * 2. **pnpm's own directory flags are directory information.** `pnpm -C <dir> run x`
  *    and `pnpm --dir <dir> run x` were parsed as flags and discarded, so the call
  *    was attributed to the workspace root — a FALSE POSITIVE that reds a correct
@@ -485,8 +501,31 @@ function unquote(word) {
  * set-valued form (`api...`, `[origin/main]`, `!api`, a path) that names no single package,
  * so the caller must not resolve it. A named-but-unresolvable filter is a different fact
  * again, and the caller — not this function — decides what it means.
+ *
+ * `carryAcrossItems` says whether a `cd` survives into the NEXT sequence item. The two
+ * CI systems differ here, and reading one as the other invents failures. GitHub Actions
+ * runs every `- run:` step as its own shell, so a cd dies with the step — that is the
+ * default. GitLab concatenates the items of a `script:` block into a single shell
+ * script, so a cd on one item still applies to the next; the GitLab caller passes
+ * `carryAcrossItems: true`.
+ *
+ * Carrying a cd that far brings in the shell rules that decide which cd is still in
+ * effect, and the per-item reset used to hide all of them. A cd inside `( … )` or
+ * `$( … )` ends with the subshell. One in a list sent to the background with a lone `&`
+ * runs in a subshell as well. The template's own `- (cd projects/api && pnpm run
+ * migrate:up)` depends on that: carried past the `)`, it blamed the next root call on
+ * projects/api, and it let a real ERR_PNPM_NO_SCRIPT through. A relative cd resolves
+ * against the directory it runs in (see `resolveCd`).
+ *
+ * Getting this wrong is not a harmless over-report. In a generated project whose
+ * `app:test` runs `- cd projects/api && pnpm run build` and then
+ * `- pnpm run start:e2e:dist` as the next item, the per-item reading attributed the
+ * second call to the workspace root and claimed the job "dies on ERR_PNPM_NO_SCRIPT" —
+ * for a job that had been green the whole time (lt-crm, DEV-2997). A guard that cries
+ * wolf about a working pipeline gets muted, and then it is worth nothing on the day it
+ * is right.
  */
-export function scriptInvocations(text) {
+export function scriptInvocations(text, { carryAcrossItems = false } = {}) {
   const out = [];
   // `cd` carried from a previous line of the same block scalar.
   let blockCd = null;
@@ -506,18 +545,60 @@ export function scriptInvocations(text) {
     if (/^\s*#/.test(rawLine)) continue;
     const line = stripTrailingComment(rawLine);
 
-    // A new sequence item or mapping key starts a new shell; anything carried
-    // from the previous line of a block scalar stops applying here.
-    if (/^\s*-\s/.test(line) || /^\s*[A-Za-z_][\w.-]*:\s*(?:[|>][-+]?\d*)?\s*$/.test(line)) {
+    // A mapping key resets the carry. That is exact for GitLab's `after_script:`, a
+    // shell of its own. For `before_script:` it is an approximation: GitLab runs it in
+    // the same shell as `script:`, but a body merged from `extends:` need not list its
+    // keys in execution order, so a cd there is not carried.
+    // A sequence item resets it only under the GitHub model; see the note above.
+    const startsNewItem = /^\s*-\s/.test(line);
+    const startsNewKey = /^\s*[A-Za-z_][\w.-]*:\s*(?:[|>][-+]?\d*)?\s*$/.test(line);
+    if (startsNewKey || (startsNewItem && !carryAcrossItems)) {
       blockCd = null;
     }
 
     let cwd = blockCd;
+    // Which cd is in effect follows the shell's structure, not the line order. Each `(`
+    // saves the directory and its `)` restores it, so a cd inside a subshell reaches the
+    // calls inside it and nothing after. A lone `&` sends its list to the background, a
+    // subshell too, so the directory falls back to where that list began. Quoted text
+    // is skipped. The walk covers the text between tokens, including a token's own
+    // leading `(` as in `(cd …`.
+    const outer = [];
+    let listStart = cwd;
+    let quote = null;
+    let pos = 0;
+    const walkTo = (end) => {
+      for (let i = pos; i < end; i++) {
+        const ch = line[i];
+        if (quote) {
+          if (ch === quote) quote = null;
+        } else if (ch === '"' || ch === "'") {
+          quote = ch;
+        } else if (ch === '(') {
+          outer.push(cwd);
+        } else if (ch === ')' && outer.length) {
+          cwd = outer.pop();
+        } else if (outer.length === 0 && ch === ';') {
+          listStart = cwd;
+        } else if (
+          outer.length === 0 &&
+          ch === '&' &&
+          !/[&>|]/.test(line[i - 1] ?? '') &&
+          !/[&>]/.test(line[i + 1] ?? '')
+        ) {
+          cwd = listStart;
+        }
+      }
+      pos = end;
+    };
+
     for (const m of line.matchAll(TOKEN)) {
+      walkTo(m.index + (/^[\s;&|(]/.test(m[0]) ? 1 : 0));
+      pos = m.index + m[0].length;
       const [, cdTarget, pm, flagsRaw, runKeyword, scriptRaw] = m;
 
       if (cdTarget !== undefined) {
-        cwd = unquote(cdTarget);
+        cwd = resolveCd(cwd, unquote(cdTarget));
         continue;
       }
 
@@ -579,8 +660,10 @@ export function scriptInvocations(text) {
       out.push({ dir: unquote(dirFlag?.[1]) ?? cwd ?? '.', kind: 'direct', script });
     }
 
-    // Carry whatever the line ended up in, for the next line of the same block.
-    blockCd = cwd;
+    // Carry the directory outside every subshell, for the next line of the same block.
+    // A subshell still open here drops its cd rather than guessing where it closes.
+    walkTo(line.length);
+    blockCd = outer.length ? outer[0] : cwd;
   }
 
   return out;
@@ -717,8 +800,8 @@ export function checkCiConsistency(root = ROOT) {
    */
   const packageDirs = packageDirsByName(root);
 
-  const checkScripts = (label, body) => {
-    for (let call of scriptInvocations(body)) {
+  const checkScripts = (label, body, options) => {
+    for (let call of scriptInvocations(body, options)) {
       if (call.kind === 'filtered') {
         if (call.filter && packageDirs.has(call.filter)) {
           // Resolved: as checkable as a `cd` into the same directory.
@@ -898,7 +981,8 @@ export function checkCiConsistency(root = ROOT) {
         );
       }
 
-      checkScripts(`gitlab/${name}`, body);
+      // GitLab runs a job's `script:` items as one shell script — a cd carries.
+      checkScripts(`gitlab/${name}`, body, { carryAcrossItems: true });
     }
 
     const buildBody = jobs.build ?? '';
