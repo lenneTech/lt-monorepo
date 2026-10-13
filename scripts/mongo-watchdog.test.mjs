@@ -32,15 +32,31 @@ after(() => servers.forEach((s) => s.close()));
 /** A throwaway TCP listener standing in for the mongo service container. */
 function listener() {
   return new Promise((resolve) => {
-    const server = createServer((socket) => socket.end());
+    // `probed` settles on the first accepted connection, which is the watchdog's
+    // initial probe: its capability check dials 127.0.0.1:9, never this port.
+    let markProbed;
+    const probed = new Promise((r) => (markProbed = r));
+    const server = createServer((socket) => {
+      markProbed();
+      socket.end();
+    });
     servers.push(server);
-    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, stop: () => server.close() }));
+    // A listening server keeps the event loop alive on its own. While the tests
+    // run that is harmless (a child process holds the loop anyway), but if they
+    // abort early — a spawn that never starts, say — these fixtures are the only
+    // handles left and the process hangs after the last test instead of exiting.
+    // unref'd they hold nothing: the run still ends on its own merits.
+    server.unref();
+    server.listen(0, '127.0.0.1', () => resolve({ port: server.address().port, probed, stop: () => server.close() }));
   });
 }
 
-/** Run the watchdog; resolves with its exit code and combined output. */
-function watchdog(port, command, { env = {}, onStart } = {}) {
-  return new Promise((resolve) => {
+/**
+ * Run the watchdog; resolves with its exit code and combined output. `onStart` runs
+ * once `started` settles — pass the listener's `probed`.
+ */
+function watchdog(port, command, { env = {}, onStart, started } = {}) {
+  return new Promise((resolve, reject) => {
     const child = spawn('bash', [SCRIPT, '127.0.0.1', String(port), '--', ...command], {
       // KILL_GRACE down from 5 s: the abort path is asserted here many times over,
       // and this suite runs inside `pnpm run check` on every commit.
@@ -56,8 +72,20 @@ function watchdog(port, command, { env = {}, onStart } = {}) {
     let out = '';
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (out += d));
-    if (onStart) setTimeout(() => onStart(), 400);
+    // After the initial probe, not after a fixed delay. A 400 ms timer lost the race
+    // whenever bash started slowly, as under the parallel load of `pnpm run check`:
+    // the service then vanished BEFORE the initial probe, and the run took the
+    // "already unreachable" exit instead of the mid-run abort under test.
+    if (onStart) started.then(onStart);
     child.on('close', (code) => resolve({ code, out }));
+    // A spawn that never starts emits `error` and NEVER `close`, so without this
+    // the promise stays pending forever and the whole suite hangs until the CI job
+    // timeout kills it. That is not hypothetical: a generated project (lt-crm,
+    // DEV-2997) wired `test:scripts` into a `lint` job on `node:24-alpine`, which
+    // ships no bash — the job burned its full 1 h budget before failing, instead of
+    // the ~1 s this rejection costs. `apk add bash` is the actual fix; this makes
+    // the NEXT missing interpreter cost a second rather than an hour.
+    child.on('error', (err) => reject(new Error(`could not spawn \`bash ${SCRIPT}\`: ${err.message}`)));
   });
 }
 
@@ -85,10 +113,10 @@ describe('mongo-watchdog — exit code passthrough (DEV-3068)', { concurrency: t
 
 describe('mongo-watchdog — service dies mid-run', { concurrency: true }, () => {
   it('aborts fast with exit 1 instead of letting the command run to its timeout', async () => {
-    const { port, stop } = await listener();
+    const { port, probed, stop } = await listener();
     const started = Date.now();
     // The command would run for 60 s; the watchdog must cut it far sooner.
-    const { code, out } = await watchdog(port, ['sh', '-c', 'sleep 60'], { onStart: stop });
+    const { code, out } = await watchdog(port, ['sh', '-c', 'sleep 60'], { onStart: stop, started: probed });
     const elapsed = (Date.now() - started) / 1000;
     assert.equal(code, 1);
     assert.ok(elapsed < 20, `expected a fast abort, took ${elapsed}s`);
@@ -97,29 +125,31 @@ describe('mongo-watchdog — service dies mid-run', { concurrency: true }, () =>
   });
 
   it('names it an infrastructure fault, not a test failure', async () => {
-    const { port, stop } = await listener();
-    const { out } = await watchdog(port, ['sh', '-c', 'sleep 60'], { onStart: stop });
+    const { port, probed, stop } = await listener();
+    const { out } = await watchdog(port, ['sh', '-c', 'sleep 60'], { onStart: stop, started: probed });
     assert.match(out, /INFRASTRUCTURE fault, not a test failure/);
     assert.match(out, /read it like this/, 'the decision tree is the point of the dump');
   });
 
   it('reports the measured window, not a hardcoded number', async () => {
     // 2 misses x 1 s interval — the message must reflect the configuration.
-    const { port, stop } = await listener();
-    const { out } = await watchdog(port, ['sh', '-c', 'sleep 60'], { onStart: stop });
+    const { port, probed, stop } = await listener();
+    const { out } = await watchdog(port, ['sh', '-c', 'sleep 60'], { onStart: stop, started: probed });
     assert.match(out, /2 consecutive probes at 1s intervals/);
   });
 
   it('counts only CONSECUTIVE misses — a recovered blip does not abort', async () => {
-    const { port, stop } = await listener();
+    const { port, probed, stop } = await listener();
     let restarted = null;
     const { code } = await watchdog(port, ['sh', '-c', 'sleep 4'], {
+      started: probed,
       onStart: () => {
         stop();
         // Back before the miss threshold is reached.
         setTimeout(() => {
           const again = createServer((s) => s.end());
           servers.push(again);
+          again.unref(); // same reason as in listener()
           again.listen(port, '127.0.0.1');
           restarted = again;
         }, 250);
@@ -171,9 +201,11 @@ describe('mongo-watchdog — forensics hygiene', { concurrency: true }, () => {
 
 describe('mongo-watchdog — usage', { concurrency: true }, () => {
   it('rejects a call without a command instead of running nothing and exiting 0', async () => {
-    const { code } = await new Promise((resolve) => {
+    const { code } = await new Promise((resolve, reject) => {
       const child = spawn('bash', [SCRIPT, '127.0.0.1', '1']);
       child.on('close', (c) => resolve({ code: c }));
+      // See the note on `watchdog()` — `error` without `close` would hang here too.
+      child.on('error', (err) => reject(new Error(`could not spawn \`bash ${SCRIPT}\`: ${err.message}`)));
     });
     assert.equal(code, 2);
   });
