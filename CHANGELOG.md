@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.15.3](https://github.com/lenneTech/lt-monorepo/compare/v3.15.2...v3.15.3) (2026-10-13)
+
+### Bug Fixes
+
+* **check:** read a GitLab job's script items as one shell ([1ca99a7](https://github.com/lenneTech/lt-monorepo/commit/1ca99a767b8df0d9a4a48febee8f79f7ebed1c1c))
+* **test:** make the mongo-watchdog suite deterministic and fail fast without bash ([1fd9bd5](https://github.com/lenneTech/lt-monorepo/commit/1fd9bd5c7b986e6d272d324bbe7df793579380b8))
+
 ## [3.15.2](https://github.com/lenneTech/lt-monorepo/compare/v3.15.1...v3.15.2) (2026-10-11)
 
 ### Bug Fixes
