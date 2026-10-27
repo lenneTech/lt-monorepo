@@ -50,15 +50,15 @@
     "release:major": "commit-and-tag-version --release-as major"
   },
   "devDependencies": {
-    "commit-and-tag-version": "13.2.1",
+    "commit-and-tag-version": "13.3.0",
     "cross-env": "10.1.0",
     "husky": "9.1.7",
-    "oxfmt": "0.72.0",
-    "oxlint": "1.87.0"
+    "oxfmt": "0.74.0",
+    "oxlint": "1.89.0"
   },
   "engines": {
     "node": ">= 22",
     "pnpm": "^11.0.0"
   },
-  "packageManager": "pnpm@11.28.5+sha512.484563d30b4c2ad27cb48aa94ff2b302dbcebc8ff6bf28816c2589886e146ce7f76f354f3bc1a438e6f5e9768c302aa0a6f7add8232903cd4cf81426cbc14d9e"
+  "packageManager": "pnpm@11.28.8+sha512.f6988a32046b9a3f78d7d7ee0747926bbe905ff9dff73bf19abb87bd7d1906a2ac90d93f73be32b5f9e14c2899569bcb0c9c5ec8a19e083f5d71bbab6dd9e0b8"
 }
