@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.16.1](https://github.com/lenneTech/lt-monorepo/compare/v3.16.0...v3.16.1) (2026-10-27)
+
+### Documentation
+
+* **pnpm-workspace:** auditConfig comment stays true once the lt CLI hoists sub-project suppressions ([3efaa2b](https://github.com/lenneTech/lt-monorepo/commit/3efaa2be5262bd3875ef9232274b16fd8622bd86))
+
 ## [3.16.0](https://github.com/lenneTech/lt-monorepo/compare/v3.15.3...v3.16.0) (2026-10-27)
 
 ### Documentation
