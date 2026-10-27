@@ -176,7 +176,10 @@ The backend can consume the framework in one of two modes — the
 - **vendor mode** — framework source is copied directly into
   `projects/api/src/core/**` as first-class project code. No
   `@lenne.tech/nest-server` npm dependency. Imports use relative
-  paths (`from '../../../core'`). Baseline + patch log live in
+  paths: `from '../../../core'` in CommonJS,
+  `from '../../../core/index.js'` once `projects/api/package.json`
+  has `"type": "module"` (ESM needs the explicit file). Baseline +
+  patch log live in
   `projects/api/src/core/VENDOR.md`. Updated via
   `/lt-dev:backend:update-nest-server-core`. Detect via:
   `test -f projects/api/src/core/VENDOR.md`.
