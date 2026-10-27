@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.16.0](https://github.com/lenneTech/lt-monorepo/compare/v3.15.3...v3.16.0) (2026-10-27)
+
+### Documentation
+
+* **claude:** name the ESM import of a vendored nest-server core ([b58dc6b](https://github.com/lenneTech/lt-monorepo/commit/b58dc6b35f633ba0b267c479935b60ae053be4a1))
+
+### CI/CD
+
+* move the pipelines to Node 24, Playwright 1.64.1 and current actions ([fe65089](https://github.com/lenneTech/lt-monorepo/commit/fe650892efed6ddbe7c4c44fd5d626ecac901d66))
+
+### Chores
+
+* **deps:** raise oxlint to 1.89.0, oxfmt to 0.74.0, commit-and-tag-version to 13.3.0 and pnpm to 11.28.8 ([0a7c9b2](https://github.com/lenneTech/lt-monorepo/commit/0a7c9b2690d92ce4186c283aa22ef04fa17e63a4))
+
 ## [3.15.3](https://github.com/lenneTech/lt-monorepo/compare/v3.15.2...v3.15.3) (2026-10-13)
 
 ### Bug Fixes
