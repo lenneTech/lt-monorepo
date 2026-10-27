@@ -70,11 +70,11 @@ jobs:
       TURBOOPS_PROJECT: ${{ vars.TURBOOPS_PROJECT || secrets.TURBOOPS_PROJECT }}
       TURBOOPS_TOKEN: ${{ secrets.TURBOOPS_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify TurboOps setup
         run: sh scripts/turboops-guard.sh
       - name: Log in to the TurboOps registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: registry.turbo-ops.de
           username: ${{ env.TURBOOPS_PROJECT }}
@@ -100,8 +100,8 @@ jobs:
       TURBOOPS_PROJECT: ${{ vars.TURBOOPS_PROJECT || secrets.TURBOOPS_PROJECT }}
       TURBOOPS_TOKEN: ${{ secrets.TURBOOPS_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Verify TurboOps setup

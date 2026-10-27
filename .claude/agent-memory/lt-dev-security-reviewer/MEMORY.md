@@ -2,3 +2,4 @@
 - [Ephemeral CI value calibration](feedback_ci-ephemeral-severity.md) — judge documented throwaway CI creds/values as Low/Info with reasoning, don't inflate
 - [Verify justification comments](feedback_verify-justification-comments.md) — audit-ignore/override/"guarded by X" claims here have been factually wrong; check tarballs + CI files, not prose
 - [Verify CI guard regexes](feedback_verify-ci-guard-regexes.md) — check-ci-consistency rules are textual YAML regexes; test each against valid alternative spellings before trusting it
+- [CI action/image bump facts](project_ci-action-image-bump-facts.md) — verified v7/v8 action behaviour; docker:30-dind will likely break TLS-off turboops-build

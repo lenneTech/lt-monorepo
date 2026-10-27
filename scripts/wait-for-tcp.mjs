@@ -9,7 +9,7 @@
  *   timeout 120 bash -c 'until (exec 3<>/dev/tcp/mongo/27017) 2>/dev/null; do sleep 2; done'
  *
  * `/dev/tcp` is a **bash builtin**, not a device — it does not exist in any other
- * shell. The GitLab pipeline's global image is `node:22-alpine`, whose `/bin/sh` is
+ * shell. The GitLab pipeline's global image is `node:24-alpine`, whose `/bin/sh` is
  * busybox and which ships no bash at all, so that line failed with
  * `timeout: can't execute 'bash': No such file or directory` and exit 127 — before a
  * single test ran, in every generated project, from 2026-08-18 until this fix.

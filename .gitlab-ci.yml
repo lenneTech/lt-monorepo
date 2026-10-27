@@ -11,7 +11,7 @@ stages:
 # Docker image for runner
 # See https://docs.gitlab.com/runner/
 # ======================================================================================================================
-image: node:22-alpine
+image: node:24-alpine
 
 # ======================================================================================================================
 # Build identity / image coordinates + TurboOps deployment
@@ -184,7 +184,7 @@ api:test:
     # own service health check usually covers this — belt and braces, and it keeps
     # the two test jobs symmetrical.
     # NOT `bash -c ... /dev/tcp/...`: /dev/tcp is a bash builtin, and this job runs on
-    # the global node:22-alpine image, whose /bin/sh is busybox and which ships no bash.
+    # the global node:24-alpine image, whose /bin/sh is busybox and which ships no bash.
     # That failed with exit 127 before a single test ran. Node is the one interpreter
     # present in every image this pipeline uses.
     - node scripts/wait-for-tcp.mjs mongo 27017 120
@@ -231,7 +231,7 @@ app:test:
   # An unguarded pin is worse than a guarded tag: the guard is what actually keeps
   # the image and @playwright/test from diverging, which is the failure that breaks
   # the suite now that `playwright install` is gone.
-  image: mcr.microsoft.com/playwright:v1.62.1-noble
+  image: mcr.microsoft.com/playwright:v1.64.1-noble
   timeout: 1 hours
   # NOTE: deliberately NOT `extends: .distributed` for the cache — the rules and
   # before_script are inherited, the cache is overridden below.
@@ -417,7 +417,7 @@ app:test:
 # practice.
 app:report:
   stage: test
-  image: mcr.microsoft.com/playwright:v1.62.1-noble
+  image: mcr.microsoft.com/playwright:v1.64.1-noble
   extends: .distributed
   when: always
   needs:
@@ -443,7 +443,7 @@ app:report:
 build:
   stage: test
   extends: .distributed
-  # glibc, NOT the pipeline default `node:22-alpine`. Nitro bundles PLATFORM-SPECIFIC
+  # glibc, NOT the pipeline default `node:24-alpine`. Nitro bundles PLATFORM-SPECIFIC
   # native binaries into `.output/server/node_modules` (`@img/sharp-*`,
   # `@img/sharp-libvips-*`). Built on musl they resolve to `sharp-linuxmusl-x64`,
   # while the consumer of this artifact — `app:test` on playwright:*-noble — is
@@ -451,7 +451,7 @@ build:
   # imports sharp lazily, the server still boots and only dies on the first
   # `/_ipx/**` request, with an error that reads like a dependency bug. Any future
   # statically-imported native dep would turn it into a hard boot failure instead.
-  image: node:22-bookworm-slim
+  image: node:24-bookworm-slim
   script:
     - pnpm run build
     # Assert the artifact contract. `pnpm -r run build` exits 0 when no package
@@ -490,9 +490,9 @@ build:
 # ======================================================================================================================
 turboops-build:
   stage: turboops-build
-  image: docker:28-dind
+  image: docker:29-dind
   services:
-    - docker:28-dind
+    - docker:29-dind
   # Download NOTHING from earlier stages. Without this GitLab's default hands this
   # job the `build` artifacts (projects/api/dist + projects/app/.output) and every
   # shard's test-results — straight into the workspace where `docker compose build`
@@ -514,7 +514,7 @@ turboops-build:
 # breaking 2.x release take down every deployment without a repo change.
 deploy-dev:
   stage: deploy
-  image: node:22-alpine
+  image: node:24-alpine
   # Nothing from earlier stages — this job reads only docker-compose.yml and
   # .turboops.json out of the repo. See the note on turboops-build.
   dependencies: []
@@ -534,7 +534,7 @@ deploy-dev:
 # main branch → `production` stage
 deploy-prod:
   stage: deploy
-  image: node:22-alpine
+  image: node:24-alpine
   # Nothing from earlier stages — see the note on turboops-build.
   dependencies: []
   before_script:

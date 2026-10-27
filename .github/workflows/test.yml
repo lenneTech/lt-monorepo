@@ -21,8 +21,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # Provision the exact pnpm pinned in package.json (single source of truth).
@@ -55,8 +55,8 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # Provision the exact pnpm pinned in package.json (single source of truth).
@@ -89,8 +89,8 @@ jobs:
     env:
       NSC__MONGOOSE__URI: mongodb://localhost:27017/api-ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # Provision the exact pnpm pinned in package.json (single source of truth).
@@ -125,7 +125,7 @@ jobs:
       matrix:
         shard: [1, 2]
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
     services:
       mongo:
         image: mongo:7
@@ -185,14 +185,14 @@ jobs:
       # the "[EMAIL VERIFICATION] … token=…" line from this file.
       NEST_SERVER_LOG: /tmp/nest-server.log
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Provision the exact pnpm pinned in package.json (single source of truth).
       # No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
       # npm enforces registry integrity for the tarball itself.
       - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
       - name: Restore build output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build-output
           path: projects
@@ -238,7 +238,7 @@ jobs:
       - name: API log (on failure)
         if: failure()
         run: tail -n 60 "$NEST_SERVER_LOG" || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: blob-report-${{ matrix.shard }}
@@ -254,19 +254,24 @@ jobs:
     needs: [app-test]
     if: always()
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      # `path` is projects/app, NOT projects/app/blob-report. Each shard artifact holds
+      # two paths, so its root is their common parent (projects/app) and its entries
+      # read `blob-report/report-N.zip`. Extracting into blob-report would nest them one
+      # level down, where `merge-reports` (top-level *.zip only) finds none and fails
+      # the job — and with it the deploy that waits on this workflow.
+      - uses: actions/download-artifact@v8
         with:
           pattern: blob-report-*
           merge-multiple: true
-          path: projects/app/blob-report
+          path: projects/app
       - run: cd projects/app && pnpm exec playwright merge-reports --reporter=html ./blob-report
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
@@ -276,8 +281,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # Provision the exact pnpm pinned in package.json (single source of truth).
@@ -297,10 +302,16 @@ jobs:
       # glibc, matching the playwright:*-noble container that consumes it — Nitro
       # bundles platform-specific native binaries (@img/sharp-*) into .output, so
       # the producer and consumer must share a libc.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: build-output
           path: |
             projects/api/dist
             projects/app/.output
+          # REQUIRED: `.output` is a dot-directory, and upload-artifact skips hidden
+          # paths by default — including one listed here by name. Without this the
+          # artifact holds only the API, the `test -f` above still passes (it reads the
+          # runner's disk, not the artifact), and every app-test shard dies when
+          # `node .output/server/index.mjs` finds nothing to start.
+          include-hidden-files: true
           retention-days: 1
