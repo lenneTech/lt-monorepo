@@ -48,9 +48,11 @@ allowBuilds:
 # describe the pre-1.42.0 "not hoisted" behaviour; they predate the CLI change.)
 # ----------------------------------------------------------------------------------
 auditConfig:
-  # Empty on purpose. Every advisory this template has met is currently closed by
-  # `overrides:` below — the outcome the rules above ask for. Add an entry only
-  # when a fix provably cannot work.
+  # The template itself suppresses nothing: every advisory it has met is currently
+  # closed by `overrides:` below — the outcome the rules above ask for. Add an entry
+  # only when a fix provably cannot work. In a generated workspace the list may hold
+  # entries the lt CLI hoisted from projects/api and projects/app; the assessment
+  # written above each one in its starter travels with it.
   #
   # Removed 2026-08-22: GHSA-mh99-v99m-4gvg / CVE-2026-14257 (brace-expansion,
   # high). Entered 2026-07-30 as a FALSE POSITIVE, because GitHub's advisory range
