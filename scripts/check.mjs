@@ -28,8 +28,8 @@
  *
  * Version marker: the `@lt-check-wrapper` line above names the lt-monorepo
  * release this wrapper ships with. The lt CLI reads it so `lt fullstack update`
- * never replaces a project's wrapper with an older one. `pnpm run release`
- * bumps it (bumpFiles in .versionrc.json), and
+ * never replaces a project's wrapper with an older one. The release recipe
+ * sets it together with the package.json version, and
  * scripts/check-wrapper-version.test.mjs fails when it drifts from
  * package.json. In a generated project it keeps the release it came from.
  */

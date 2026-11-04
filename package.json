@@ -44,13 +44,9 @@
     "format": "oxfmt --write scripts/ && pnpm -r --parallel run format",
     "format:check": "oxfmt --check scripts/ && pnpm -r --parallel run format:check",
     "reinit": "node scripts/remove.mjs node_modules pnpm-lock.yaml && pnpm install && pnpm -r --parallel run reinit",
-    "prepare": "husky || exit 0",
-    "release": "commit-and-tag-version",
-    "release:minor": "commit-and-tag-version --release-as minor",
-    "release:major": "commit-and-tag-version --release-as major"
+    "prepare": "husky || exit 0"
   },
   "devDependencies": {
-    "commit-and-tag-version": "13.3.0",
     "cross-env": "10.1.0",
     "husky": "9.1.7",
     "oxfmt": "0.74.0",
