@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.17.3](https://github.com/lenneTech/lt-monorepo/compare/v3.17.2...v3.17.3) (2026-11-04)
+
+### Tests
+
+* **check:** take over the wrapper content tests the lt CLI drops ([1796968](https://github.com/lenneTech/lt-monorepo/commit/179696868c598943691d9f7fe5eea91cf5242948))
+
 ## [3.17.2](https://github.com/lenneTech/lt-monorepo/compare/v3.17.1...v3.17.2) (2026-11-04)
 
 ### CI/CD
