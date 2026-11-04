@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.17.1](https://github.com/lenneTech/lt-monorepo/compare/v3.17.0...v3.17.1) (2026-11-04)
+
+### Bug Fixes
+
+* **check-overrides:** report overrides whose parent left the tree or whose fixed target nothing resolves to ([0964623](https://github.com/lenneTech/lt-monorepo/commit/0964623dc95892706a3509a51fea2674783775b3))
+
+### Performance
+
+* **check-overrides:** stop copying the rest of the lockfile for every edge ([65386e6](https://github.com/lenneTech/lt-monorepo/commit/65386e65f7a667994b9d2eee3a89036ca9987d31))
+
+### Chores
+
+* **deps:** raise oxlint to 1.91.0 and oxfmt to 0.76.0 ([b57e601](https://github.com/lenneTech/lt-monorepo/commit/b57e601e95d9ed5f77b5af278d8de0303776fb88))
+
 ## [3.17.0](https://github.com/lenneTech/lt-monorepo/compare/v3.16.1...v3.17.0) (2026-11-04)
 
 ### Features
