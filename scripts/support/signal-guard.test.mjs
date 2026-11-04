@@ -54,6 +54,19 @@ describe('signal guard wiring', () => {
     assert.match(readFileSync(join(root, '.gitlab-ci.yml'), 'utf8'), /^ {4}- pnpm run test:scripts$/m);
   });
 
+  it('installs bash before the GitLab lint job runs test:scripts', () => {
+    // That job runs on node:24-alpine, which ships no bash, and mongo-watchdog.test.mjs spawns
+    // the watchdog under bash: without the install all 12 of its tests fail and `lint` goes red
+    // in every generated project. The template's own CI cannot see this, it only runs on GitHub.
+    const gitlab = readFileSync(join(dirname(GUARD), '..', '..', '.gitlab-ci.yml'), 'utf8');
+    const bash = gitlab.search(/^ {4}- apk add --no-cache bash$/m);
+    assert.ok(bash >= 0, 'no `apk add --no-cache bash` step in .gitlab-ci.yml');
+    assert.ok(
+      bash < gitlab.search(/^ {4}- pnpm run test:scripts$/m),
+      'bash must be installed before test:scripts runs',
+    );
+  });
+
   it('is loaded in this test process', () => {
     assert.equal(
       guardInstalled(),
