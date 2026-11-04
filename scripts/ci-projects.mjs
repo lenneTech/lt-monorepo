@@ -23,7 +23,7 @@
  * In the template that is intended; `main` has no branch protection today. Whoever turns
  * it on must not make these jobs the only required checks there.
  */
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,6 +69,9 @@ function main(root) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `run=${decision.run}\n`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// realpath on both sides: node resolves the entry module through symlinks, argv[1] keeps the
+// path it was given. A plain comparison makes `node /symlinked/path/ci-projects.mjs` exit 0
+// with no output, which leaves `outputs.run` empty and skips every gated job: green, untested.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   main(join(dirname(fileURLToPath(import.meta.url)), '..'));
 }

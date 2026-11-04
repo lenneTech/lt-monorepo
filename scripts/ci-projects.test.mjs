@@ -3,7 +3,9 @@
  * project, where a missing `projects/` has to fail instead of going green.
  */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +14,33 @@ import { TEMPLATE_PACKAGE_NAME, projectJobs } from './ci-projects.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TEMPLATE = TEMPLATE_PACKAGE_NAME;
+
+/**
+ * Runs the real script in a throwaway root, the way the `projects` job does, and returns its exit
+ * code and what it wrote to GITHUB_OUTPUT. `projectJobs` alone does not prove the decision reaches
+ * the jobs: they read only the exit code and the output file.
+ */
+function runScript({ name, projects }) {
+  const root = mkdtempSync(join(tmpdir(), 'ci-projects-'));
+  try {
+    mkdirSync(join(root, 'scripts'));
+    copyFileSync(join(ROOT, 'scripts/ci-projects.mjs'), join(root, 'scripts/ci-projects.mjs'));
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name }));
+    for (const project of projects) {
+      mkdirSync(join(root, 'projects', project), { recursive: true });
+      writeFileSync(join(root, 'projects', project, 'package.json'), '{}');
+    }
+    const output = join(root, 'github-output');
+    writeFileSync(output, '');
+    const r = spawnSync(process.execPath, [join(root, 'scripts/ci-projects.mjs')], {
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_OUTPUT: output },
+    });
+    return { output: readFileSync(output, 'utf8'), status: r.status, stdout: r.stdout };
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+}
 
 describe('projectJobs', () => {
   it('runs the jobs wherever both projects exist', () => {
@@ -63,6 +92,27 @@ describe('projectJobs', () => {
   });
 });
 
+describe('ci-projects.mjs as the projects job runs it', () => {
+  it('writes run=true and exits 0 in a generated project with both projects', () => {
+    const r = runScript({ name: 'my-project', projects: ['api', 'app'] });
+    assert.equal(r.status, 0, r.stdout);
+    assert.equal(r.output, 'run=true\n');
+  });
+
+  it('exits 1 and writes no decision in a generated project without projects', () => {
+    // Exit 0 here, or any run= line, would skip the gated jobs and report the pipeline green.
+    const r = runScript({ name: 'my-project', projects: [] });
+    assert.equal(r.status, 1, r.stdout);
+    assert.equal(r.output, '');
+  });
+
+  it('writes run=false and exits 0 in the template', () => {
+    const r = runScript({ name: TEMPLATE, projects: [] });
+    assert.equal(r.status, 0, r.stdout);
+    assert.equal(r.output, 'run=false\n');
+  });
+});
+
 describe('test.yml wiring', () => {
   const workflow = readFileSync(join(ROOT, '.github/workflows/test.yml'), 'utf8');
   const job = (name) => {
@@ -73,9 +123,12 @@ describe('test.yml wiring', () => {
     return next < 0 ? rest : rest.slice(0, next + 1);
   };
 
-  it('runs the decision script in a projects job', () => {
-    assert.match(job('projects'), /node scripts\/ci-projects\.mjs/);
-    assert.match(job('projects'), /run: \$\{\{ steps\.[\w-]+\.outputs\.run \}\}/);
+  it('runs the decision script in a projects job and exposes the output of that step', () => {
+    // The job output must name the id of the step that runs the script. With any other id,
+    // outputs.run is empty in every project and all gated jobs skip: green, untested.
+    const id = /- id: ([\w-]+)\n\s+run: node scripts\/ci-projects\.mjs\n/.exec(job('projects'))?.[1];
+    assert.ok(id, 'no step with an id runs node scripts/ci-projects.mjs');
+    assert.match(job('projects'), new RegExp(`run: \\$\\{\\{ steps\\.${id}\\.outputs\\.run \\}\\}`));
   });
 
   for (const name of ['api-test', 'build']) {
