@@ -48,9 +48,9 @@ allowBuilds:
 # describe the pre-1.42.0 "not hoisted" behaviour; they predate the CLI change.)
 # ----------------------------------------------------------------------------------
 auditConfig:
-  # The template itself suppresses nothing: every advisory it has met is currently
-  # closed by `overrides:` below — the outcome the rules above ask for. Add an entry
-  # only when a fix provably cannot work. In a generated workspace the list may hold
+  # The template suppresses one advisory below; every other one it has met is closed
+  # by `overrides:` — the outcome the rules above ask for. Add an entry only when a
+  # fix provably cannot work. In a generated workspace the list may hold
   # entries the lt CLI hoisted from projects/api and projects/app; the assessment
   # written above each one in its starter travels with it.
   #
@@ -63,7 +63,25 @@ auditConfig:
   # upstream range is narrowed — then delete this entry") is met verbatim.
   # Verified 2026-08-22 by a fresh resolve with BOTH this block and `overrides:`
   # stripped: `pnpm audit` still reported no known vulnerabilities.
-  ignoreGhsas: []
+  #
+  # GHSA-g3hv-75wg-m249 (minimatch < 11.0.1, moderate, DoS through globparts
+  # amplification). Added 2026-11-04, mirroring nest-server-starter and dotastic
+  # (DEV-3926; owner decision 2026-11-01, DEV-3899). 1. The fix exists only in the
+  # new major 11.0.1; the 3.x line ends at 3.1.5 unpatched. The only consumer here is
+  # commit-and-tag-version 13.3.0 > dotgitignore 2.1.0, which asks for `^3.0.4` and
+  # builds every pattern with `minimatch.makeRe()` (lib/dotignore.js) — minimatch 11
+  # removed `makeRe()`, so an override across the major breaks it, and the
+  # fixed-target rule rules out a range anyway. 2. Provably unfixable, not a false
+  # positive. 3. Dev only (release tooling): the patterns are the `.gitignore` lines
+  # the developer writes, never request input, and nothing ships the package.
+  # 4. Verified 2026-11-04: `pnpm why minimatch` shows minimatch@3.1.5 via
+  # dotgitignore only; dotgitignore 2.1.0 is still its latest release.
+  # check:overrides fails with RE-TEST once the listed consumer moves. REMOVE once
+  # dotgitignore (or commit-and-tag-version) moves to minimatch 11.
+  ignoreGhsas:
+    - GHSA-g3hv-75wg-m249
+  unusableFixConsumers:
+    GHSA-g3hv-75wg-m249: 'dotgitignore@2.1.0 cannot use 11.0.1'
 
 # Dependency overrides (security fixes).
 #
