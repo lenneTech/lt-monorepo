@@ -77,6 +77,28 @@ describe('createBuildTestGate (DEV-2524)', () => {
     assert.equal(gate.activeClass, null);
   });
 
+  it('ignores an unbalanced release instead of going negative', async () => {
+    // A negative counter silently breaks exclusion: with two holders and one stray release,
+    // the counter reaches 0 while a holder is still running, and the opposite class is
+    // admitted alongside it.
+    const gate = createBuildTestGate();
+    gate.release();
+    assert.equal(gate.activeCount, 0);
+    await gate.acquire('build');
+    await gate.acquire('build');
+    gate.release();
+    let testAdmitted = false;
+    const test = gate.acquire('test').then(() => {
+      testAdmitted = true;
+    });
+    await tick();
+    assert.equal(testAdmitted, false, 'a build still holds the gate');
+    gate.release();
+    await test;
+    gate.release();
+    assert.equal(gate.activeClass, null);
+  });
+
   it('holds the invariant under an interleaved schedule: no test ever runs during a build', async () => {
     const gate = createBuildTestGate();
     const running = { build: 0, test: 0 };
