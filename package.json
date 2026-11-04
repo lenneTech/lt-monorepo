@@ -49,8 +49,8 @@
   "devDependencies": {
     "cross-env": "10.1.0",
     "husky": "9.1.7",
-    "oxfmt": "0.75.0",
-    "oxlint": "1.90.0"
+    "oxfmt": "0.76.0",
+    "oxlint": "1.91.0"
   },
   "engines": {
     "node": ">= 22",
