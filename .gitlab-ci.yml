@@ -96,6 +96,14 @@ lint:
     # package that only declares `typecheck:tests` (the API starter does).
     # `--if-present` keeps a project without them (e.g. an Angular frontend) green.
     - pnpm run typecheck
+    # The repository's own script tests, under the signal guard that lets a test
+    # signal only the children it spawned (scripts/support/signal-guard.mjs).
+    # bash first: this job runs on the global node:24-alpine image, which ships none,
+    # and scripts/mongo-watchdog.test.mjs runs the watchdog under bash. Without it all
+    # 12 of its tests fail with `spawn bash ENOENT`, `lint` goes red, and `app:test`
+    # (which needs `lint`) never starts.
+    - apk add --no-cache bash
+    - pnpm run test:scripts
 
 # Security audit — mirrors the `audit` step of `pnpm run check`, and BLOCKING.
 #
