@@ -262,3 +262,12 @@ fabric.properties
 
 # lt dev session state (ports, PIDs, env bridge, logs)
 .lt-dev/
+
+# Review agents' notes stay out of this repository: it is public, and the notes record findings
+# and internals that do not belong in it (decided 2026-11-01). `**/` covers the sub-project scopes
+# too. No trailing `/`: the lt-memory plugin links the directory as a symlink, which git treats as
+# a file, so `agent-memory/` would not match it and the link would be committed. A project generated
+# from this template keeps the block only when it is public too (`lt fullstack init --public`, or
+# the answer to its question); otherwise init removes it, so a private project decides for itself
+# whether to share the notes (decided 2026-11-03).
+**/.claude/agent-memory

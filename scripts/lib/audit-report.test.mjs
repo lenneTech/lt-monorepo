@@ -13,6 +13,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { stripVTControlCharacters } from 'node:util';
 
 import {
   advisoryBulkUrl,
@@ -178,7 +179,7 @@ describe('assessedSeverities', () => {
 });
 
 describe('renderVulnLine', () => {
-  const plain = (s) => s.replace(/\[[0-9;]*m/g, '');
+  const plain = stripVTControlCharacters;
   const isDimmed = (line, severity) => new RegExp(`\\u001b\\[2m${severity} \\d+`).test(line);
   const isYellow = (line, severity) => new RegExp(`\\u001b\\[33m${severity} \\d+`).test(line);
   const isRed = (line, severity) => new RegExp(`\\u001b\\[31m${severity} \\d+`).test(line);
