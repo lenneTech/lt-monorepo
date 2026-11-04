@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.17.2](https://github.com/lenneTech/lt-monorepo/compare/v3.17.1...v3.17.2) (2026-11-04)
+
+### CI/CD
+
+* **test:** skip the project jobs in the template, and run the script tests in CI ([#12](https://github.com/lenneTech/lt-monorepo/pull/12)) ([b910fda](https://github.com/lenneTech/lt-monorepo/commit/b910fdaf071c7a779bbc1b8e182c1999553cc9d1))
+
 ## [3.17.1](https://github.com/lenneTech/lt-monorepo/compare/v3.17.0...v3.17.1) (2026-11-04)
 
 ### Bug Fixes
