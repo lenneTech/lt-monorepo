@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.17.0](https://github.com/lenneTech/lt-monorepo/compare/v3.16.1...v3.17.0) (2026-11-04)
+
+### Features
+
+* **check-overrides:** read multi-consumer declarations, count only affected edges and look up unnamed fixes in the registry ([78dd5e0](https://github.com/lenneTech/lt-monorepo/commit/78dd5e079a6ea3ed15ce802731873a8b08502315))
+
+### Bug Fixes
+
+* **check:** keep the script name of typecheck steps in the report ([0e54728](https://github.com/lenneTech/lt-monorepo/commit/0e547280d8c6d940ce7e9b46b185db8b5884e0ce))
+
+### Documentation
+
+* **migration:** add the 3.17.0 guide ([7db6d3b](https://github.com/lenneTech/lt-monorepo/commit/7db6d3bf9f92503721e5e896f68888d9e665e9e8))
+
+### Build System
+
+* drop commit-and-tag-version and the release scripts ([575e29b](https://github.com/lenneTech/lt-monorepo/commit/575e29b09bf2a0009b87c373c82197c0851879ed))
+
+### Chores
+
+* **deps:** raise oxlint to 1.90.0, oxfmt to 0.75.0 and pnpm to 11.28.10 ([98f2af6](https://github.com/lenneTech/lt-monorepo/commit/98f2af6c5ad6baa3fca780ec1180d862c8c00f53))
+* keep review agents' notes out of the public template ([2348ece](https://github.com/lenneTech/lt-monorepo/commit/2348ece1753a8ca4f1109102609953443e34ec11))
+
 ## [3.16.1](https://github.com/lenneTech/lt-monorepo/compare/v3.16.0...v3.16.1) (2026-10-27)
 
 ### Documentation
