@@ -196,7 +196,10 @@ function classify(cmd) {
   // to fall through to `other` and run ungated, fully concurrent with the API
   // e2e suite. The gate then paid its serialisation cost while the second
   // heaviest CPU load in the chain still ran alongside the suite it protects.
-  if (/\btypecheck\b/.test(c)) return { fatal: true, kind: 'build', label: 'typecheck' };
+  // The label keeps the script's suffix: the app chain runs `typecheck` AND
+  // `typecheck:tests`, and two identical report lines would hide which failed.
+  const typecheck = /\btypecheck(?::[\w-]+)?/.exec(c);
+  if (typecheck) return { fatal: true, kind: 'build', label: typecheck[0] };
   if (c.includes('build') || c.includes('nuxt build') || c.includes('tsc'))
     return { fatal: true, kind: 'build', label: 'build' };
   if (c.includes('check-server-start') || c.includes('server-start'))
