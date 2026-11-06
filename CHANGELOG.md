@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.0](https://github.com/lenneTech/lt-monorepo/compare/v3.17.3...v3.18.0) (2026-11-06)
+
+### Features
+
+* **template:** accept an Angular app in projects/app ([e9b6de3](https://github.com/lenneTech/lt-monorepo/commit/e9b6de37ce183624e8f7f56c4f665766381f34dd))
+
 ## [3.17.3](https://github.com/lenneTech/lt-monorepo/compare/v3.17.2...v3.17.3) (2026-11-04)
 
 ### Tests
