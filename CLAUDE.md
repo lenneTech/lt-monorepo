@@ -5,7 +5,12 @@
 > - **[VENDOR-MODE-WORKFLOW](https://github.com/lenneTech/cli/blob/main/docs/VENDOR-MODE-WORKFLOW.md)** — Step-by-step: npm → vendor conversion, vendor updates, vendor → npm rollback
 > - **[CLI Command Reference](https://github.com/lenneTech/cli/blob/main/docs/commands.md)** — All `lt` commands with options
 >
+<!-- lt:frontend nuxt -->
 > **🔧 Framework Mode** — Each sub-project runs in `npm` or `vendor` mode. If `projects/api/src/core/VENDOR.md` (backend) or `projects/app/app/core/VENDOR.md` (frontend) exists, that half is **vendored**: read framework code from the `core/` tree, update it with `/lt-dev:backend:update-nest-server-core` / `/lt-dev:frontend:update-nuxt-extensions-core` (both also raise npm packages to at least the upstream baseline via `/lt-dev:maintenance:maintain`), and send generally-useful core fixes upstream with the matching `contribute-*-core` command. Run `lt fullstack update` to print the right flow for this workspace.
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+> **🔧 Framework Mode** — Each sub-project runs in `npm` or `vendor` mode. If `projects/api/src/core/VENDOR.md` (backend) or `projects/app/src/core/VENDOR.md` (frontend) exists, that half is **vendored**: read framework code from the `core/` tree, update it with `/lt-dev:backend:update-nest-server-core` / `/lt-dev:frontend:update-ng-base-core` (agent `ng-base-core-updater`; both also raise npm packages to at least the upstream baseline via `/lt-dev:maintenance:maintain`), and send generally-useful core fixes upstream with `/lt-dev:backend:contribute-nest-server-core` / `/lt-dev:frontend:contribute-ng-base-core` (agent `ng-base-core-contributor`). Run `lt fullstack update` to print the right flow for this workspace.
+<!-- /lt:frontend -->
 
 ## Project Structure
 
@@ -13,7 +18,12 @@
 {{PROJECT_DIR}}/
 ├── projects/
 │   ├── api/    ← NestJS backend (depends on @lenne.tech/nest-server)
+<!-- lt:frontend nuxt -->
 │   └── app/    ← {{FRONTEND_FRAMEWORK}} frontend (depends on @lenne.tech/nuxt-extensions)
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+│   └── app/    ← {{FRONTEND_FRAMEWORK}} frontend (depends on @lenne.tech/ng-base)
+<!-- /lt:frontend -->
 ├── pnpm-workspace.yaml
 └── package.json (workspaces: ["projects/*"])
 ```
@@ -38,10 +48,18 @@ cd projects/api && pnpm run test:e2e  # Run API tests
 
 ### Frontend: `projects/app/`
 
+<!-- lt:frontend nuxt -->
 - **Framework:** {{FRONTEND_FRAMEWORK}} + `@lenne.tech/nuxt-extensions`
 - **UI:** NuxtUI 4 + TailwindCSS 4
 - **API Client:** Generated types (`types.gen.ts`, `sdk.gen.ts`)
 - **Auth:** `useLtAuth()` composable (`useLtAuthClient()` for the raw Better Auth client)
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+- **Framework:** {{FRONTEND_FRAMEWORK}} + `@lenne.tech/ng-base` (SSR via `@angular/ssr`, standalone, zoneless)
+- **UI:** `@lenne.tech/ng-base/ui` (Spartan UI) + TailwindCSS 4
+- **API Client:** Generated from the API's OpenAPI document (`pnpm run generate-types`)
+- **Auth:** `LtAuthService` and the route guards from `@lenne.tech/ng-base/auth`
+<!-- /lt:frontend -->
 - **URL:** `https://{{PROJECT_NAME}}.localhost` (set automatically by `lt dev up`); falls back to `http://localhost:3001` for classic `pnpm dev`
 
 ```bash
@@ -66,9 +84,16 @@ The build commit SHA makes it visible at a glance:
 
 - **API** (`@lenne.tech/nest-server` meta module) reports it via `GET /meta`
   (`commit` field) and the `/health-check` build indicator.
+<!-- lt:frontend nuxt -->
 - **App** freezes it into the Nuxt bundle (`runtimeConfig.public.appCommit`) and
   shows + compares both under **`/app/admin/system`** — a warning appears when
   the App and API commits differ.
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+- **App** reads it on the SSR server at runtime (build identity from
+  `@lenne.tech/ng-base/server`) and shows + compares both under
+  **`/app/admin/system`** — a warning appears when the App and API commits differ.
+<!-- /lt:frontend -->
 
 The contract (one variable, end to end):
 
@@ -76,7 +101,12 @@ The contract (one variable, end to end):
 CI commit SHA → IMAGE_TAG (.gitlab-ci.yml)
              → APP_VERSION_COMMIT build arg (docker-compose.yml)
              → ENV in each image (Dockerfile)
+<!-- lt:frontend nuxt -->
              → GET /meta + runtimeConfig.public.appCommit
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+             → GET /meta + the App's build identity (SSR server)
+<!-- /lt:frontend -->
 ```
 
 Versions (semver) are per-component and may legitimately differ — only the
@@ -111,9 +141,14 @@ lt dev status --all        # Lists every registered project + running state
 `lt dev up` exports the env vars both starters respect:
 
 - API: `PORT`, `BASE_URL`, `APP_URL`, `NSC__MONGOOSE__URI`, `NSC__BASE_URL`, `NSC__APP_URL`, `DATABASE_URL`
+<!-- lt:frontend nuxt -->
 - App: `PORT`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NUXT_PUBLIC_API_PROXY=false`
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+- App: `PORT`, `NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_STORAGE_PREFIX`, `NG_PUBLIC_API_PROXY=false` (read by the SSR server at request time, never baked into the bundle)
+<!-- /lt:frontend -->
 
-Without `lt dev up`, both starters fall back to the classic localhost ports (3000/3001) with the vite-proxy enabled for same-origin cookies. On a single-project machine that is fine; on a multi-project machine `lt dev up` is mandatory — it prevents the "wrong API answers wrong frontend" class of bugs by serving every project under stable HTTPS URLs (`https://{{PROJECT_NAME}}.localhost`, `https://api.{{PROJECT_NAME}}.localhost`) with a per-slug cookie domain, storage-prefix and database name.
+Without `lt dev up`, both starters fall back to the classic localhost ports (3000/3001) with the dev-server proxy enabled for same-origin cookies. On a single-project machine that is fine; on a multi-project machine `lt dev up` is mandatory — it prevents the "wrong API answers wrong frontend" class of bugs by serving every project under stable HTTPS URLs (`https://{{PROJECT_NAME}}.localhost`, `https://api.{{PROJECT_NAME}}.localhost`) with a per-slug cookie domain, storage-prefix and database name.
 
 ### E2E tests (Playwright)
 
@@ -121,7 +156,7 @@ The App E2E suite is environment-agnostic and runs unchanged in three setups:
 
 - **Classic ports** — API `:3000` + App `:3001` started manually.
 - **`lt dev up`** — HTTPS behind Caddy; the `.lt-dev/.env` bridge (auto-loaded by `playwright.config.ts`) feeds the project URLs. Run via `lt dev test`.
-- **CI** — GitLab (`.gitlab-ci.yml`) and GitHub Actions (`.github/workflows/test.yml`) both: build once (`build` job → `projects/api/dist` + `projects/app/.output` as an artifact), then run **two shards** that boot the **compiled** API (`start:e2e:dist`, migrations first) on `:3000`, set `PLAYWRIGHT=true` and `E2E_BUILT_SERVER=true`, and let Playwright serve the **built** Nuxt server on `:3001`. The shard reports are merged into one HTML report by a follow-up job.
+- **CI** — GitLab (`.gitlab-ci.yml`) and GitHub Actions (`.github/workflows/test.yml`) both: build once (`build` job → `projects/api/dist` + `projects/app/.output` as an artifact), then run **two shards** that boot the **compiled** API (`start:e2e:dist`, migrations first) on `:3000`, set `PLAYWRIGHT=true` and `E2E_BUILT_SERVER=true`, and let Playwright serve the **built** app server (`projects/app/.output/server/index.mjs`) on `:3001`. The shard reports are merged into one HTML report by a follow-up job.
 
   Two shards, not more: Playwright splits per test, but a `test.describe.serial` block is atomic — `auth-lifecycle.spec.ts` is one 9-step serial chain and therefore the floor on any split. **Any new stateful spec must use `describe.serial`**, otherwise its steps scatter across shards and the dependent ones skip themselves and report green.
 
@@ -133,10 +168,16 @@ The App E2E suite is environment-agnostic and runs unchanged in three setups:
 
   Workspace discovery for all of this lives in one place, `scripts/lib/workspace-packages.mjs`, shared by `check.mjs`, `check-workspace-consistency.mjs` and `check-ci-consistency.mjs`. It used to be copied into all three and the copies had drifted apart; each then resolved nothing under a slightly different but perfectly valid `pnpm-workspace.yaml` and reported that every rule held. It also counts **symlinked** members, which `lt fullstack init --api-link` / `--frontend-link` create and which a plain `Dirent.isDirectory()` filter reports as absent — that alone had made every link-mode workspace look empty to all three guards at once.
 
-  The checker's copy of the loopback pattern is a verbatim mirror of `LOOPBACK_URI` in the app's test helpers, because at the moment it runs in this template `projects/` is empty and there is nothing to import. `scripts/check-ci-consistency.test.mjs` carries a drift detector that reads the sibling `nuxt-base-starter` checkout and compares the two sources; it reports as *skipped* when that checkout is absent (never green), and `LT_DRIFT_STRICT=1` turns absence into a hard failure for release runs.
+  The checker's copy of the loopback pattern is a verbatim mirror of `LOOPBACK_URI` in the app's test helpers, because at the moment it runs in this template `projects/` is empty and there is nothing to import. `scripts/check-ci-consistency.test.mjs` carries a drift detector that reads the sibling starter checkouts (`nuxt-base-starter` and `ng-base-starter`, which keep the helper at the same relative path) and compares each with the mirror; a checkout that is absent reports as *skipped* (never green), and `LT_DRIFT_STRICT=1` turns absence into a hard failure for release runs.
 
+<!-- lt:frontend nuxt -->
 Test code reads `NUXT_PUBLIC_API_URL` / `NUXT_PUBLIC_SITE_URL` / `API_URL` with `localhost:3000` / `:3001` fallbacks — **never hardcode ports in specs**. Auth cookies injected into the browser must preserve the `Secure` flag (HTTPS under `lt dev`) and derive their domain from the app host.
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+Test code reads `NG_PUBLIC_API_URL` / `NG_PUBLIC_SITE_URL` / `API_URL` with `localhost:3000` / `:3001` fallbacks — **never hardcode ports in specs**. Auth cookies injected into the browser must preserve the `Secure` flag (HTTPS under `lt dev`) and derive their domain from the app host.
+<!-- /lt:frontend -->
 
+<!-- lt:frontend nuxt -->
 ### Known macOS caveats (`lt dev up`)
 
 Two open issues observed on macOS — **not fixable via template config**, tracked
@@ -157,6 +198,7 @@ for an upstream `lt dev` / Nuxt solution:
   without config. Residual risk: two apps BOOTING at the same instant can race
   `getPort` onto the same port (rare; restart one app). For fully deterministic
   ports, set `vite.server.hmr.port` per instance — it is respected again.
+<!-- /lt:frontend -->
 
 ## Framework Source Code
 
@@ -193,9 +235,16 @@ The backend can consume the framework in one of two modes — the
   changes MUST be submitted as a PR to
   `github.com/lenneTech/nest-server` — use
   `/lt-dev:backend:contribute-nest-server-core` to prepare it. The
+  <!-- lt:frontend nuxt -->
   same policy applies to `projects/app/app/core/` vs.
   `github.com/lenneTech/nuxt-extensions`
   (`/lt-dev:frontend:contribute-nuxt-extensions-core`).
+  <!-- /lt:frontend -->
+  <!-- lt:frontend angular -->
+  same policy applies to `projects/app/src/core/` vs.
+  `github.com/lenneTech/ng-base`
+  (`/lt-dev:frontend:contribute-ng-base-core`, agent `ng-base-core-contributor`).
+  <!-- /lt:frontend -->
 
 Key files — **path prefix depends on mode**:
 
@@ -212,6 +261,7 @@ Key files — **path prefix depends on mode**:
 | `src/core/common/services/crud.service.ts`               | CrudService base class                               |
 | `docs/REQUEST-LIFECYCLE.md` (npm only)                   | Complete request lifecycle                           |
 
+<!-- lt:frontend nuxt -->
 ### Frontend Framework: @lenne.tech/nuxt-extensions
 
 Key files in `projects/app/node_modules/@lenne.tech/nuxt-extensions/`:
@@ -225,6 +275,29 @@ Key files in `projects/app/node_modules/@lenne.tech/nuxt-extensions/`:
 ## Auth Middleware Pattern
 
 When implementing auth middleware in `projects/app/app/middleware/`, follow the read-only pattern from `@lenne.tech/nuxt-extensions`. Never mutate `lt-auth-state` directly — use `useLtAuth()` composable methods.
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+### Frontend Framework: @lenne.tech/ng-base
+
+Entry points: `@lenne.tech/ng-base` plus `/auth`, `/ui`, `/files`, `/share`,
+`/ai`, `/sync`, `/server`, `/testing` and `/utils`, each enabled by its own
+`provideLt…()` function. Imports always use these specifiers, in both modes.
+
+- **npm mode** — framework source is in
+  `projects/app/node_modules/@lenne.tech/ng-base/`.
+- **vendor mode** — framework source is copied into `projects/app/src/core/`
+  (primary entry `index.ts`, one subfolder per entry point), and tsconfig
+  `paths` map `@lenne.tech/ng-base` and `@lenne.tech/ng-base/*` onto it.
+  Baseline + patch log live in `projects/app/src/core/VENDOR.md`. Detect via:
+  `test -f projects/app/src/core/VENDOR.md`.
+
+## Auth Guard Pattern
+
+Protect route groups with the functional guards from `@lenne.tech/ng-base/auth`
+(`ltAuthGuard`, `ltGuestGuard`, `ltRoleGuard`, `ltSystemSetupGuard`). Read auth
+state through the `LtAuthService` signals and change it only through its methods —
+never write the auth cookies or state directly.
+<!-- /lt:frontend -->
 
 ## Native MongoDB Driver — Forbidden
 
@@ -254,7 +327,12 @@ Details: `projects/api/node_modules/@lenne.tech/nest-server/CLAUDE.md` → "Nati
 ## Rules
 
 1. **Backend tasks** → Use `generating-nest-servers` skill
+<!-- lt:frontend nuxt -->
 2. **Frontend tasks** → Use `developing-lt-frontend` skill
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+2. **Frontend tasks** → Use `developing-lt-angular-frontend` skill
+<!-- /lt:frontend -->
 3. **Always read framework source** before guessing — in npm mode from
    `node_modules/@lenne.tech/nest-server/`, in vendor mode directly
    from `projects/api/src/core/**`. Run `lt status` inside

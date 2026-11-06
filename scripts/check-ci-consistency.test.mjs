@@ -1092,21 +1092,40 @@ describe('LOOPBACK_URI drift detector', () => {
   // detector that "passed" would be indistinguishable from one that ran.
   // `LT_DRIFT_STRICT=1` turns absence into a hard failure and belongs in the
   // release workflow — the one moment drift actually costs something.
-  const UPSTREAM = join(ROOT_DIR, '..', 'nuxt-base-starter', 'nuxt-base-template/tests/e2e/helpers/auth-backend.ts');
+  //
+  // Both frontend starters carry the guard, because projects/app is either one
+  // and the CI file this checker reads is the same for both. ng-base-starter is
+  // flat (repo root = the app) and keeps the helper at the same path inside the
+  // app. Each starter is its own test, so one present checkout never hides the
+  // other's absence.
+  const UPSTREAMS = [
+    ['nuxt-base-starter', 'nuxt-base-template/tests/e2e/helpers/auth-backend.ts'],
+    ['ng-base-starter', 'tests/e2e/helpers/auth-backend.ts'],
+  ];
   const STRICT = process.env.LT_DRIFT_STRICT === '1';
-  const itDrift = existsSync(UPSTREAM) || STRICT ? it : it.skip;
 
-  itDrift('matches the guard it mirrors, character for character', () => {
-    assert.ok(existsSync(UPSTREAM), `LT_DRIFT_STRICT=1 but ${UPSTREAM} is absent — cannot prove the copy is current`);
-    const upstream = readFileSync(UPSTREAM, 'utf8');
-    const declared = /^const LOOPBACK_URI = (\/.+\/);$/m.exec(upstream)?.[1];
-    assert.ok(declared, 'could not find `const LOOPBACK_URI = …` upstream — the anchor moved, update this detector');
-    assert.equal(
-      LOOPBACK_URI.toString(),
-      declared,
-      'LOOPBACK_URI has drifted from auth-backend.ts. Narrower reds a correct pipeline and pushes people to set the destructive opt-out; wider passes a URI the runtime guard refuses. Copy it verbatim.',
-    );
-  });
+  for (const [repo, rel] of UPSTREAMS) {
+    const upstreamPath = join(ROOT_DIR, '..', repo, rel);
+    const itDrift = existsSync(upstreamPath) || STRICT ? it : it.skip;
+
+    itDrift(`matches the guard it mirrors in ${repo}, character for character`, () => {
+      assert.ok(
+        existsSync(upstreamPath),
+        `LT_DRIFT_STRICT=1 but ${upstreamPath} is absent — cannot prove the copy is current`,
+      );
+      const upstream = readFileSync(upstreamPath, 'utf8');
+      const declared = /^const LOOPBACK_URI = (\/.+\/);$/m.exec(upstream)?.[1];
+      assert.ok(
+        declared,
+        `could not find \`const LOOPBACK_URI = …\` in ${repo} — the anchor moved, update this detector`,
+      );
+      assert.equal(
+        LOOPBACK_URI.toString(),
+        declared,
+        `LOOPBACK_URI has drifted from ${repo}'s auth-backend.ts. Narrower reds a correct pipeline and pushes people to set the destructive opt-out; wider passes a URI the runtime guard refuses. Copy it verbatim.`,
+      );
+    });
+  }
 });
 
 describe('E2E remote-DB opt-out rule — GitHub', () => {

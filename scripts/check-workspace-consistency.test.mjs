@@ -180,6 +180,18 @@ describe('check-workspace-consistency: wire-critical versions', () => {
     assert.match(out, /@lenne\.tech\/nuxt-extensions says ">=1\.0\.0"/);
   });
 
+  it('FIRES for an Angular app too — ng-base owns the same contract as nuxt-extensions', () => {
+    // Without ng-base in CONTRACT_OWNERS its peer range is never read: an Angular
+    // workspace has only one owner left, nothing to compare with, and passes.
+    const members = inAgreement();
+    members[1].owner = '@lenne.tech/ng-base';
+    members[1].peers['better-auth'] = '>=1.6.0 <1.7.0';
+    const { out, status } = runGuard(buildWorkspace(members));
+
+    assert.equal(status, 1, out);
+    assert.match(out, /@lenne\.tech\/ng-base says ">=1\.6\.0 <1\.7\.0"/);
+  });
+
   it('catches a range drift even while the installed versions still agree', () => {
     // The failure that has not happened yet: today's install is fine, the next
     // one is a coin flip. Fail now, while it is one line to fix.

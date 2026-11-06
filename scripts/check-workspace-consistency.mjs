@@ -109,8 +109,12 @@ for (const { pkg, rel } of members) {
 // ---------------------------------------------------------------------------
 const WIRE_CRITICAL = ['better-auth', '@better-auth/passkey', '@better-auth/core'];
 
-/** The framework libraries that own the contract, and therefore declare the peer ranges. */
-const CONTRACT_OWNERS = ['@lenne.tech/nest-server', '@lenne.tech/nuxt-extensions'];
+/**
+ * The framework libraries that own the contract, and therefore declare the peer ranges.
+ * ng-base is the Angular counterpart of nuxt-extensions and declares the same peers; a
+ * workspace holds one of the two, so only the one present is ever read.
+ */
+const CONTRACT_OWNERS = ['@lenne.tech/nest-server', '@lenne.tech/nuxt-extensions', '@lenne.tech/ng-base'];
 
 const wireProblems = [];
 

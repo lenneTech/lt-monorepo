@@ -316,13 +316,20 @@ app:test:
     # That is better deploy parity, but it IS a behaviour change for any spec that
     # asserted on dev-only chrome.
     E2E_BUILT_SERVER: "true"
-    # The Nuxt app needs these too: runtimeConfig ships an empty apiUrl and
-    # locally only .env (gitignored) fills it. Without them every page logs
-    # "[LtExtensions] No API URL configured" and auth calls resolve against the
-    # app origin instead of the API.
+    # The app needs these too: it ships no API URL and locally only .env
+    # (gitignored) fills it. Without them every page logs "No API URL configured"
+    # and auth calls resolve against the app origin instead of the API.
+    # BOTH sets, whatever projects/app is: a Nuxt app reads NUXT_*, an Angular
+    # app (ng-base-starter) reads NG_* on its SSR server at request time. Setting
+    # both keeps this file frontend-agnostic, so `lt fullstack init` never has to
+    # rewrite it; the set the app does not read is inert.
     NUXT_API_URL: "http://localhost:3000"
     NUXT_PUBLIC_API_URL: "http://localhost:3000"
     NUXT_PUBLIC_SITE_URL: "http://localhost:3001"
+    NG_API_URL: "http://localhost:3000"
+    NG_PUBLIC_API_URL: "http://localhost:3000"
+    NG_PUBLIC_SITE_URL: "http://localhost:3001"
+    NG_PUBLIC_STORAGE_PREFIX: "ci"
     # The API derives BetterAuth's trustedOrigins and the passkey rpId/origin
     # from appUrl. Without it the app origin is untrusted and every
     # origin-checked endpoint (two-factor/enable, passkey) answers

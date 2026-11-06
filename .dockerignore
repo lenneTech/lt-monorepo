@@ -50,6 +50,11 @@ projects/*/.npmrc
 **/.nuxt-*
 **/.output-*
 **/.nitro
+# The Angular CLI's build cache (`.angular/cache`) when projects/app is an
+# Angular app (ng-base-starter). Local-only, often several hundred MB, and
+# rewritten on every build; `COPY projects/app/` would carry it into the builder
+# stage and bust the cache of the `ng build` layer.
+**/.angular
 **/.cache
 **/dist
 
