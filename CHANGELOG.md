@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.4](https://github.com/lenneTech/lt-monorepo/compare/v3.18.3...v3.18.4) (2026-11-07)
+
+### Bug Fixes
+
+* **ci:** keep the dind daemon of turboops-build off the shared bridge ([c2065ad](https://github.com/lenneTech/lt-monorepo/commit/c2065adf6ef1ed29cb88c7d08390de6dcfcb1f00))
+
+### Documentation
+
+* **migration:** add the 3.18.4 guide ([d260382](https://github.com/lenneTech/lt-monorepo/commit/d26038204a392d920a0128a742fc3cb1844aefa2))
+
 ## [3.18.3](https://github.com/lenneTech/lt-monorepo/compare/v3.18.2...v3.18.3) (2026-11-07)
 
 ### Bug Fixes
