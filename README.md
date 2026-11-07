@@ -1,4 +1,4 @@
-# lenne.Tech Monorepro
+# lenne.Tech Monorepo
 
 In this readme you find all information about functionality and usage of this project. It is clustered in the following sections:
 
