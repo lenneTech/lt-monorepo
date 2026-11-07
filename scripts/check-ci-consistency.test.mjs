@@ -180,6 +180,106 @@ describe('mongo isolation rule — where the flag is allowed to live', () => {
   });
 });
 
+const dindJob = (service, vars = '    FF_NETWORK_PER_BUILD: "true"\n') =>
+  `turboops-build:\n  stage: turboops-build\n  image: docker:29-dind\n  services:\n${service}  variables:\n${vars}  script:\n    - docker compose build api app\n`;
+
+describe('dind isolation rule — a Docker daemon without TLS stays off the shared bridge (DEV-3934)', () => {
+  // Driven from both sides, like the mongo rule above: a positive control proving it
+  // ARMS on each spelling, and a negative control proving it FIRES without the flag.
+  const spellings = {
+    'short form, as the template writes it': '    - docker:29-dind\n',
+    'short form, quoted': '    - "docker:29-dind"\n',
+    'block form with alias': '    - name: docker:29-dind\n      alias: docker\n',
+    'untagged version': '    - docker:dind\n',
+    rootless: '    - name: docker:29-dind-rootless\n',
+    'registry mirror': '    - name: registry.example.com/mirror/docker:29-dind\n',
+    // The four below went unguarded in the first version of the rule (review of 3.18.4).
+    'dependency proxy prefix':
+      '    - name: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/docker:29-dind\n      alias: docker\n',
+    'variable prefix, short form': '    - $CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX/docker:29-dind\n',
+    'variable tag': '    - docker:${DOCKER_VERSION}-dind\n',
+    'alias before name': '    - alias: docker\n      name: docker:29-dind\n',
+    // Same manifest digest as docker:29-dind: these ARE the daemon image.
+    'version tag without dind': '    - docker:29\n',
+    'latest tag': '    - name: docker:latest\n',
+    'bare image name': '    - name: docker\n',
+    'digest-pinned': '    - docker:29@sha256:08a98015fce594af7c382883bea080ea206de74402a95da9dc52b6428c8cd121\n',
+  };
+
+  // Look-alikes that are NOT a daemon. A false positive here would demand a flag for
+  // nothing, and a guard that fails on correct config gets deleted.
+  const notDind = {
+    'the client image': '    - docker:29-cli\n',
+    'docker/compose': '    - name: docker/compose:1.29\n',
+    'an image merely aliased docker': '    - name: registry.example.com/builder:1\n      alias: docker\n',
+    'a docker-entrypoint command': '    - name: postgres:16\n      command: ["docker-entrypoint.sh", "postgres"]\n',
+    'redis and mongo': '    - redis:7\n    - name: mongo:7\n',
+  };
+  for (const [label, service] of Object.entries(notDind)) {
+    it(`does not arm on ${label}`, () => {
+      const res = run({ gitlab: dindJob(service, '    X: "1"\n') });
+      assert.equal(armed(res, 'dind service'), false, `armed on a non-dind service: ${label}`);
+    });
+  }
+
+  for (const [label, service] of Object.entries(spellings)) {
+    it(`arms on ${label}`, () => {
+      const res = run({ gitlab: dindJob(service) });
+      assert.ok(armed(res, 'dind service requests per-build networking'), `rule never armed on: ${label}`);
+      assert.equal(failed(res, 'dind service'), false, 'flag IS present — must not fail');
+    });
+
+    it(`fires on ${label} when the flag is missing`, () => {
+      const res = run({ gitlab: dindJob(service, '    DOCKER_TLS_CERTDIR: ""\n') });
+      assert.ok(failed(res, 'gitlab/turboops-build: dind service'), `rule did not fire on: ${label}`);
+    });
+  }
+
+  it('arms on the flow sequence', () => {
+    const res = run({
+      gitlab: 'turboops-build:\n  stage: turboops-build\n  services: [docker:29-dind]\n  script:\n    - docker info\n',
+    });
+    assert.ok(failed(res, 'dind service'), 'flow-sequence service went unguarded');
+  });
+
+  it('accepts the flag in the global variables block', () => {
+    const res = run({
+      gitlab: 'variables:\n  FF_NETWORK_PER_BUILD: "true"\n\n' + dindJob('    - docker:29-dind\n', '    X: "1"\n'),
+    });
+    assert.ok(armed(res, 'dind service requests per-build networking'));
+    assert.equal(failed(res, 'dind service'), false, 'globally-set flag must satisfy the rule');
+  });
+
+  it('stays silent when only the job IMAGE is dind', () => {
+    // The image is the CLIENT here. Without a dind service there is no daemon to expose,
+    // so the rule must read `services:`, not the whole job body.
+    const res = run({
+      gitlab: 'images:\n  stage: build\n  image: docker:29-dind\n  script:\n    - docker info\n',
+    });
+    assert.equal(armed(res, 'dind service'), false, 'a dind job image must not arm the service rule');
+  });
+
+  it('does not mistake a mongo service for a dind one, or the other way round', () => {
+    const res = run({ gitlab: mongoJob('    - name: mongo:7\n', '    X: "1"\n') });
+    assert.equal(armed(res, 'dind service'), false);
+    const res2 = run({ gitlab: dindJob('    - docker:29-dind\n', '    X: "1"\n') });
+    assert.equal(armed(res2, 'mongo service'), false);
+  });
+
+  it("covers the template's own turboops-build job", (t) => {
+    // In a generated project the job may legitimately be gone (a project that deploys
+    // elsewhere drops it), so the assertion belongs to the template only.
+    const pkgName = JSON.parse(readFileSync(join(ROOT_DIR, 'package.json'), 'utf8')).name;
+    if (pkgName !== 'lt-monorepo') {
+      t.skip(`package "${pkgName}" is a generated project, not the lt-monorepo template`);
+      return;
+    }
+    const res = checkCiConsistency();
+    assert.ok(armed(res, 'gitlab/turboops-build: dind service'), 'turboops-build must be covered by the dind rule');
+    assert.equal(failed(res, 'dind service'), false, "the template's turboops-build must keep FF_NETWORK_PER_BUILD");
+  });
+});
+
 describe('sharding rules', () => {
   it('fires when a parallel job never passes --shard', () => {
     const res = run({

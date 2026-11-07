@@ -28,6 +28,10 @@ image: node:24-alpine
 variables:
   IMAGE_NAME: registry.turbo-ops.de/${TURBOOPS_PROJECT}
   IMAGE_TAG: ${CI_COMMIT_SHA}
+  # TLS off: the dind daemon of turboops-build listens on tcp 2375 without TLS or
+  # authentication. That is only acceptable because the job runs on its own per-build
+  # network (FF_NETWORK_PER_BUILD there). Turning TLS on needs a runner change first,
+  # see migration-guides/3.18.4.md.
   DOCKER_TLS_CERTDIR: ""
 
 # ======================================================================================================================
@@ -508,6 +512,19 @@ turboops-build:
   image: docker:29-dind
   services:
     - docker:29-dind
+  variables:
+    # Its own network per build, as in api:test and app:test (DEV-3934). With TLS off
+    # (see DOCKER_TLS_CERTDIR above), a dind service on the runner host's shared
+    # default bridge can be driven by every other container on that host, including
+    # the CI job of another project: it could swap the production image between
+    # `build` and `push`. On the per-build network only this job's containers reach
+    # the daemon, still under the hostname `docker`, which the image's entrypoint
+    # puts into DOCKER_HOST. The flag only works on the Docker executor and loses to
+    # a `network_mode` in the runner's config.toml. Side effect: the Dockerfiles' RUN
+    # steps resolve names via 8.8.8.8/8.8.4.4 instead of the host's resolver (see
+    # migration-guides/3.18.4.md), so a runner that blocks public DNS fails the build.
+    # scripts/check-ci-consistency.mjs requires it for every dind service.
+    FF_NETWORK_PER_BUILD: "true"
   # Download NOTHING from earlier stages. Without this GitLab's default hands this
   # job the `build` artifacts (projects/api/dist + projects/app/.output) and every
   # shard's test-results — straight into the workspace where `docker compose build`

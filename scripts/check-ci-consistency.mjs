@@ -39,6 +39,11 @@
  *      as pod sidecars and Shell executors have no service containers at all, so
  *      the flag is a REQUEST that a runner may ignore (it also loses to a
  *      `network_mode` in config.toml). See the rule name below, which says so.
+ *      The same rule covers Docker-in-Docker services (DEV-3934), which fail
+ *      neither green nor loudly: the job works either way, it is simply exposed.
+ *      With `DOCKER_TLS_CERTDIR: ""` the dind daemon listens on tcp 2375 without
+ *      TLS or authentication, so on the default bridge any container on that host
+ *      can drive the daemon that builds and pushes the production images.
  *   7. A `pnpm run <script>` the target package does not define — see the rule's
  *      own docblock at `checkScripts`. Every other rule checks the SHAPE of a
  *      command; this one checks that the command is real. It covers calls whose
@@ -182,6 +187,39 @@ function indentedBlock(body, key) {
 export function declaresMongoService(servicesText) {
   if (!servicesText) return false;
   return /^\s*-\s*(?:name:\s*)?["']?[\w.\-/]*mongo/im.test(servicesText) || /\[[^\]]*\bmongo/i.test(servicesText);
+}
+
+/**
+ * Is this image reference the Docker-in-Docker daemon?
+ *
+ * `dind` in the reference is the obvious case. It is not the only one: `docker:29`,
+ * `docker:latest` and a bare `docker` resolve to the SAME image as `docker:29-dind`
+ * (one manifest digest), and only `-cli` is the client. The reference may carry a
+ * registry or a variable prefix (`${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/docker:29`)
+ * and a digest.
+ */
+function isDindImage(ref) {
+  if (/dind/i.test(ref)) return true;
+  const m = /(?:^|\/)docker(?::([^@\s]+))?(?:@\S+)?$/i.exec(ref);
+  return Boolean(m) && !/cli/i.test(m[1] ?? '');
+}
+
+/**
+ * Does this `services:` section declare a Docker-in-Docker daemon?
+ *
+ * Broad for the reason given at `declaresMongoService`. Reads the image REFERENCE of
+ * every entry (`- name: X`, `- X`, a `name: X` below `- alias: …`, flow sequences)
+ * instead of matching a pattern over the line. A line pattern missed the dependency
+ * proxy prefix (`$`, `{`, `}`), the alias-first form and the tags without `dind`,
+ * and reported every rule as held while the daemon sat on the shared bridge.
+ */
+export function declaresDindService(servicesText) {
+  if (!servicesText) return false;
+  const refs = [...servicesText.matchAll(/^\s*(?:-\s*(?:name:\s*)?|name:\s*)["']?([^\s"'#]+)/gm)].map((m) => m[1]);
+  for (const flow of servicesText.matchAll(/\[([^\]]*)\]/g)) {
+    refs.push(...flow[1].split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')));
+  }
+  return refs.some(isDindImage);
 }
 
 /**
@@ -944,10 +982,19 @@ export function checkCiConsistency(root = ROOT) {
       // `globalVars` instead, which is where it belongs.
       if (!name.startsWith('.') && !NOT_A_JOB.has(name)) {
         const merged = stripComments(effectiveBody(jobs, name));
+        const perBuildNetwork =
+          /FF_NETWORK_PER_BUILD:\s*["']?true/.test(merged) || /FF_NETWORK_PER_BUILD:\s*["']?true/.test(globalVars);
+        if (declaresDindService(servicesBlock(merged))) {
+          rule(
+            `gitlab/${name}: dind service requests per-build networking (docker executor)`,
+            perBuildNetwork,
+            'declares a Docker-in-Docker service but no `FF_NETWORK_PER_BUILD: "true"` (neither on the job, on a block it extends, nor in the global `variables:`). Without it the runner keeps the service on the shared default bridge, and with `DOCKER_TLS_CERTDIR: ""` its daemon answers on tcp 2375 without TLS or authentication: every container on that host can drive the daemon that builds and pushes your images, and swap one before the push. The job still reaches the daemon as `docker` on the per-build network, so adding the flag changes nothing else',
+          );
+        }
         if (declaresMongoService(servicesBlock(merged))) {
           rule(
             `gitlab/${name}: mongo service requests per-build networking (docker executor)`,
-            /FF_NETWORK_PER_BUILD:\s*["']?true/.test(merged) || /FF_NETWORK_PER_BUILD:\s*["']?true/.test(globalVars),
+            perBuildNetwork,
             'declares a `mongo` service but no `FF_NETWORK_PER_BUILD: "true"` (neither on the job, on a block it extends, nor in the global `variables:`). Without it the runner keeps the service on the shared default bridge in the deprecated `--link` mode: every container on that host can reach an unauthenticated mongo, and when alias resolution goes, every call waits out MongoDB\'s 30 s server-selection timeout while the log blames the tests. NOTE when adding it: with a per-build network the service is no longer reachable on `127.0.0.1` — address it by its alias (`mongodb://mongo:27017/...`), or this fix breaks a currently-green job',
           );
         }
