@@ -143,6 +143,18 @@ export function pinCheckBuildDir(cmd, platform = process.platform) {
 }
 
 /**
+ * A command as the report names it: without its leading environment assignments
+ * (`cross-env NUXT_BUILD_DIR=.nuxt-check pnpm audit` → `pnpm audit`).
+ *
+ * Display only. The command still runs with its pin. The pin is an internal detail
+ * of the check, and in the report it named Nuxt in every workspace, an Angular one
+ * included. Failure messages keep the full command, which is what reproduces it.
+ */
+export function displayCmd(cmd) {
+  return cmd.replace(/^(?:cross-env\s+)?(?:[A-Z_][A-Z0-9_]*=\S*\s+)+/, '');
+}
+
+/**
  * The environment a step needs beyond the inherited one.
  *
  * Keyed on the COMMAND, not on the textual pin. Two reasons, and the second is
@@ -927,7 +939,7 @@ async function main() {
   console.log(C.bold(`\nRunning checks for ${C.cyan(pkgName)}`));
   console.log(
     C.dim(
-      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? 'none'}` +
+      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ? displayCmd(auditCmd) : 'none'}` +
         `${NO_FIX ? '' : ' · auto-fix format+lint'}${VERBOSE ? ' · verbose' : ''}\n`,
     ),
   );
@@ -1086,7 +1098,7 @@ function report(started, results) {
     }
   }
 
-  console.log(`\n${C.bold('Vulnerabilities')} ${C.dim(audit ? `(${audit.auditCmd})` : '(no audit step)')}`);
+  console.log(`\n${C.bold('Vulnerabilities')} ${C.dim(audit ? `(${displayCmd(audit.auditCmd)})` : '(no audit step)')}`);
   console.log(
     `  ${
       audit?.counts

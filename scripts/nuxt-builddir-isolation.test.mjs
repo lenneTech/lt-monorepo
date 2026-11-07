@@ -47,7 +47,7 @@ import { fileURLToPath } from 'node:url';
 // helpers WITHOUT starting a check run. `isCliEntry()` in check.mjs is what
 // guarantees that, and the spawn probe at the bottom of this file asserts it
 // explicitly rather than relying on this import to notice.
-import { PM_INVOCATION, buildGroups, pinCheckBuildDir, resolveCliEntry } from './check.mjs';
+import { PM_INVOCATION, buildGroups, displayCmd, pinCheckBuildDir, resolveCliEntry } from './check.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -222,6 +222,27 @@ describe('DEV-2720 — pinCheckBuildDir', () => {
       pinCheckBuildDir('NUXT_BUILD_DIR=.nuxt-other pnpm install'),
       'NUXT_BUILD_DIR=.nuxt-other pnpm install',
     );
+  });
+});
+
+describe('the report names the command, not the pin', () => {
+  // The pin is the check's internal detail. Printed in the report header and the
+  // Vulnerabilities line, it named Nuxt in every workspace, an Angular one included.
+  // Only the label changes: the command that runs keeps its pin.
+  it("the template's own audit runs pinned and is shown without the pin", () => {
+    const { auditCmd } = buildGroups([asProject('.', rootScripts['check:raw'])]);
+    assert.ok(auditCmd, 'the root chain no longer yields a hoisted audit');
+    assert.match(auditCmd, PINNED, 'the audit that runs lost its pin');
+    assert.equal(displayCmd(auditCmd), 'pnpm audit');
+  });
+
+  it('drops only leading assignments, with or without cross-env', () => {
+    assert.equal(displayCmd(`NUXT_BUILD_DIR=${CHECK_DIR} pnpm audit --json`), 'pnpm audit --json');
+    assert.equal(displayCmd(`cross-env NUXT_BUILD_DIR=${CHECK_DIR} CI=1 pnpm audit --fix`), 'pnpm audit --fix');
+    // Nothing to drop: no assignment, or one that is part of a later command.
+    assert.equal(displayCmd('pnpm audit --audit-level=high'), 'pnpm audit --audit-level=high');
+    assert.equal(displayCmd('cross-env pnpm audit'), 'cross-env pnpm audit');
+    assert.equal(displayCmd('pnpm audit && NUXT_BUILD_DIR=x pnpm i'), 'pnpm audit && NUXT_BUILD_DIR=x pnpm i');
   });
 });
 
