@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.1](https://github.com/lenneTech/lt-monorepo/compare/v3.18.0...v3.18.1) (2026-11-07)
+
+### Bug Fixes
+
+* **template:** give each frontend its own README sections ([5b1209b](https://github.com/lenneTech/lt-monorepo/commit/5b1209be37c727724d2ced40eb21df4373a33a22))
+
 ## [3.18.0](https://github.com/lenneTech/lt-monorepo/compare/v3.17.3...v3.18.0) (2026-11-06)
 
 ### Features
