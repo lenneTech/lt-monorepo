@@ -6,10 +6,11 @@
 # Both images receive the build's git commit SHA via the APP_VERSION_COMMIT build
 # arg, fed from IMAGE_TAG (= the CI commit SHA, see .gitlab-ci.yml). Each turns it
 # into a runner-stage ENV and reads it at runtime, so the arg never enters a build
-# layer's cache key and the expensive `nuxt build` / `nest build` layers stay warm:
+# layer's cache key and the expensive app and API build layers stay warm:
 #   - API  reads process.env and reports it via GET /meta + the /health-check badge
-#   - App  maps NUXT_PUBLIC_APP_COMMIT onto runtimeConfig.public, which Nitro applies
-#          on boot, and shows it under /app/admin/system
+#   - App  gets it as its frontend's public commit variable (NUXT_PUBLIC_APP_COMMIT or
+#          NG_PUBLIC_APP_COMMIT, set in projects/app/Dockerfile), which its server
+#          reads at runtime, and shows it under /app/admin/system
 # Because both carry the SAME commit but read it independently, App and API can be
 # compared to detect a mismatched / stale container after a partial rollout.
 # Locally (no CI) it defaults to "unknown", which suppresses the drift warning.
@@ -102,7 +103,7 @@ services:
     # the throttling belongs here, at the orchestrator.
     restart: on-failure:10
 
-  # === APP (Nuxt) ===
+  # === APP (frontend) ===
   app:
     build:
       context: .
@@ -114,9 +115,9 @@ services:
         # and the runner's `COPY .../.output` fails with "/app/.output: not found".
         APP_DIR: projects/app
         # IMAGE_TAG is the CI commit SHA (see .gitlab-ci.yml). The Dockerfile turns
-        # it into ENV NUXT_PUBLIC_APP_COMMIT in the runner stage, which Nitro applies
-        # over runtimeConfig.public on boot — so /app/admin/system can show + compare
-        # the App build without the commit ever invalidating the `nuxt build` layer.
+        # it into the frontend's public commit ENV in the runner stage, which the app
+        # server reads at runtime — so /app/admin/system can show + compare the App
+        # build without the commit ever invalidating the app's build layer.
         APP_VERSION_COMMIT: ${IMAGE_TAG:-unknown}
     image: ${IMAGE_NAME}/app:${IMAGE_TAG:-latest}
     expose:
@@ -126,8 +127,9 @@ services:
         condition: service_healthy
     healthcheck:
       # 127.0.0.1, NOT localhost: on Alpine `localhost` resolves to IPv6 ::1 first,
-      # but Nitro listens on IPv4 0.0.0.0 only → "connection refused" → the app
-      # container never turns healthy even though it serves / with HTTP 200.
+      # but the app server listens on IPv4 0.0.0.0 only (HOST in its Dockerfile) →
+      # "connection refused" → the app container never turns healthy even though it
+      # serves / with HTTP 200.
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
       interval: 30s
       timeout: 10s

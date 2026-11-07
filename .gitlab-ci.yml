@@ -495,8 +495,8 @@ build:
 # Create those stages once in TurboOps (matching slugs) + set TURBOOPS_PROJECT /
 # TURBOOPS_TOKEN + commit `.turboops.json` (see `lt deployment create`).
 #
-# Both images read the commit at RUNTIME from a runner-stage ENV — the App maps it onto
-# runtimeConfig.public via NUXT_PUBLIC_APP_COMMIT — so no build layer depends on it and
+# Both images read the commit at RUNTIME from a runner-stage ENV — the App's is set in its
+# Dockerfile, named per frontend — so no build layer depends on it and
 # both stay fully cacheable. An earlier `--no-cache app` here blamed BuildKit for baking
 # a stale commit; that was a misdiagnosis. A layer whose ARG is in scope is invalidated
 # when the arg changes, so the cache never served a stale SHA. The real cause was that
