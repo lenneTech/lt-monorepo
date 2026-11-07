@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.3](https://github.com/lenneTech/lt-monorepo/compare/v3.18.2...v3.18.3) (2026-11-07)
+
+### Bug Fixes
+
+* **check:** show the audit command without the build-dir pin ([7edebdb](https://github.com/lenneTech/lt-monorepo/commit/7edebdbde31fc87792d2c0822f1f73a294746cc8))
+
+### Documentation
+
+* **deploy:** describe the app's commit variable for both frontends ([2b03416](https://github.com/lenneTech/lt-monorepo/commit/2b03416c096532ac220502ba14b29afe4cae7b67))
+
 ## [3.18.2](https://github.com/lenneTech/lt-monorepo/compare/v3.18.1...v3.18.2) (2026-11-07)
 
 ### Documentation
