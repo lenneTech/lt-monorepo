@@ -56,17 +56,25 @@ cd <project-folder>
 # Install dependencies for app and api
 pnpm run init
 
-# Create environment variables
+# Create environment variables (only if missing: `lt fullstack init` already
+# created .env with project-specific values, and a copy would overwrite them)
 cd projects/app
-cp .env.example .env
+[ -f .env ] || cp .env.example .env
 
-# Start project
+# Start project (classic ports: API http://localhost:3000, App http://localhost:3001)
 cd ../../
 pnpm run start
 ```
 
+Both ways of starting are equivalent for a single project. `pnpm run start` uses the
+classic ports above. `pnpm run dev` (`lt dev up`) serves the project under its own
+HTTPS URLs instead (`https://<project>.localhost`, `https://api.<project>.localhost`);
+use it when several lt projects run on the same machine, where the classic ports
+would collide.
+
 ## 🛠️ Environment Variables
 
+<!-- lt:frontend nuxt -->
 You need to set up the following environment variables in the `.env` file:
 
 Note the `NUXT_` / `NUXT_PUBLIC_` prefixes on the app variables. Nitro maps only
@@ -96,6 +104,34 @@ a single-origin deployment and wrong behind a proxy or vanity domain, where user
 receive reset links pointing at the internal host — a failure that only surfaces in
 their inbox. Use the `NUXT_PUBLIC_` form, not `NUXT_SITE_URL`: both reach the SEO
 config, but only the public form also populates the auth redirect origin.
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+You need to set up the following environment variables in `projects/app/.env`
+(`lt fullstack init` creates it from `.env.example`; under `lt dev up` the CLI sets
+them for you):
+
+Note the `NG_` / `NG_PUBLIC_` prefixes on the app variables. The SSR server reads
+every `NG_*` value at request time and hands the public ones to the browser; nothing
+is baked into the bundle. The built server (`node .output/server/index.mjs`) does not
+read `.env`, and neither does `pnpm run generate-types`: it takes `NG_API_URL` from the
+shell or from `lt dev up`.
+
+| Variable                   | Description                                                                                          | Default (.env.example)  |
+| -------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------- |
+| `NG_PUBLIC_SITE_URL`       | Public origin of the frontend application. **Required in production** — see below.                   | `http://localhost:3001` |
+| `NODE_ENV`                 | Specifies the environment in which the application is running.                                       | `development`           |
+| `NG_API_URL`               | Base URL of the backend API, server-side (SSR + dev proxy target).                                   | `http://localhost:3000` |
+| `NG_PUBLIC_API_URL`        | Base URL of the backend API, client-side.                                                            | `http://localhost:3000` |
+| `NG_PUBLIC_APP_ENV`        | Deployment stage label (`local`, `develop`, `test`, `production`); anything but `production` is noindex. | `local`                 |
+| `NG_PUBLIC_STORAGE_PREFIX` | Prefix used for local storage keys (namespaces parallel projects); `lt dev up` sets the project slug. | `my-project-local`      |
+| `NG_PUBLIC_COOKIE_PREFIX`  | Must match the backend's `COOKIE_PREFIX` when that is set.                                           | (empty)                 |
+| `NG_PUBLIC_API_PROXY`      | `true` routes browser API calls through the dev server (classic ports); `lt dev up` exports `false`. | `true`                  |
+
+**`NG_PUBLIC_SITE_URL` must be set on every deployed stage.** It is the public origin
+of the app itself and feeds the canonical and sitemap URLs, the host the SSR engine
+accepts besides localhost (Angular answers 400 to any other `Host` header), and the
+origin of the absolute redirect URLs in password-reset and e-mail-verification mails.
+<!-- /lt:frontend -->
 
 These reach the containers as **runtime** environment (TurboOps stage variables /
 Swarm), not as build args — one image serves every stage.
@@ -125,6 +161,7 @@ distinct from `check:workspace`, which asserts that api and app agree on the
 *same* versions of the wire-critical packages; this one asserts every declared
 peer is satisfied at all.
 
+<!-- lt:frontend nuxt -->
 **Why there is a `.nuxt-check/` directory.** Nuxt writes its generated types,
 including `tsconfig.json`, into its build dir. With one shared `.nuxt/`, a check
 running next to a parked `nuxt dev` rewrote that file underneath the dev server,
@@ -135,6 +172,7 @@ perfectly fine — it looks exactly like a real type error. So the check chain p
 `init` / `reinit` deliberately stay **unpinned** — they are what keeps the IDE's
 `.nuxt/` supplied. On a fresh clone where you only ever ran `check`, run
 `pnpm run init` (or start the dev server) once to populate it.
+<!-- /lt:frontend -->
 
 **Accepting a security advisory.** The CI `audit` job is **blocking** in both
 pipelines: a red audit means an advisory nobody has assessed yet. There is no
@@ -211,9 +249,16 @@ exit code; a vanished service aborts fast) is pinned by
 This project build with modern frameworks to get a sustainable and fast experience. Following technologies, frameworks and libraries are used:
 
 - Frontend:
+<!-- lt:frontend nuxt -->
   - [Vue.js](https://vuejs.org/guide/introduction.html)
   - [NUXT](https://nuxt.com/docs/getting-started/introduction)
   - [TailwindCSS](https://tailwindcss.com/docs/installation)
+<!-- /lt:frontend -->
+<!-- lt:frontend angular -->
+  - [Angular](https://angular.dev/overview)
+  - [@lenne.tech/ng-base](https://github.com/lenneTech/ng-base) with [Spartan UI](https://www.spartan.ng)
+  - [TailwindCSS](https://tailwindcss.com/docs/installation)
+<!-- /lt:frontend -->
 
 - Backend:
   - [Nest.js](https://docs.nestjs.com/)
