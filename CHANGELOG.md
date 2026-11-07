@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.2](https://github.com/lenneTech/lt-monorepo/compare/v3.18.1...v3.18.2) (2026-11-07)
+
+### Documentation
+
+* **readme:** fix the title typo "Monorepro" ([62f8227](https://github.com/lenneTech/lt-monorepo/commit/62f8227e76506f6c5de5750219bcf1671efc85cd))
+
 ## [3.18.1](https://github.com/lenneTech/lt-monorepo/compare/v3.18.0...v3.18.1) (2026-11-07)
 
 ### Bug Fixes
