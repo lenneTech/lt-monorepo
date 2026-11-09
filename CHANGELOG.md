@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.5](https://github.com/lenneTech/lt-monorepo/compare/v3.18.4...v3.18.5) (2026-11-09)
+
+### CI/CD
+
+* move the E2E jobs to the Playwright 1.65.0 image ([d47ea5c](https://github.com/lenneTech/lt-monorepo/commit/d47ea5c939022cf4efbe461db985e168a70b4176))
+
+### Chores
+
+* **deps:** raise oxlint to 1.92.0 and oxfmt to 0.77.0 ([9e91546](https://github.com/lenneTech/lt-monorepo/commit/9e91546d2a9058bd19af68ad58cb2a71809513ed))
+
 ## [3.18.4](https://github.com/lenneTech/lt-monorepo/compare/v3.18.3...v3.18.4) (2026-11-07)
 
 ### Bug Fixes
