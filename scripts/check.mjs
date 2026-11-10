@@ -195,6 +195,11 @@ function classify(cmd) {
   if (PM_INSTALL.test(c)) return { fatal: true, kind: 'install', label: 'install' };
   if (PM_AUDIT.test(c)) return { fatal: true, kind: 'audit', label: 'audit' };
   if (c.includes('vendor-freshness')) return { fatal: false, kind: 'vendor', label: 'vendor-freshness' };
+  // nest-server's read-only field-type check (12.8.7+). Matched on the SCRIPT name: in
+  // vendor mode the lt CLI rewrites the script body to `node ./bin/check-…`, while the
+  // chain keeps calling `pnpm run check:unified-field-types`. Without this branch it
+  // fell through to `other` and the report cut its name short.
+  if (c.includes('unified-field-types')) return { fatal: true, kind: 'other', label: 'unified-field-types' };
   if (c.includes('format:check') || c.includes('oxfmt')) return { fatal: true, kind: 'format', label: 'format' };
   if (c.includes('lint')) return { fatal: true, kind: 'lint', label: 'lint' };
   // A unit-only run is named explicitly, is short, and is not contention

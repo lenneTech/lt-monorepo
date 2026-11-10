@@ -61,6 +61,20 @@ describe('check.mjs gate classes', () => {
   });
 });
 
+describe('check.mjs labels the unified-field-types step', () => {
+  // nest-server-starter runs it in `check` and, with `-- --fix`, in `check:fix`. It is a
+  // read-only check: fatal on findings, ungated, and run exactly as the chain wrote it.
+  for (const cmd of ['pnpm run check:unified-field-types', 'pnpm run check:unified-field-types -- --fix']) {
+    it(`names \`${cmd}\` in full and leaves it ungated`, () => {
+      const [step] = stepsOf(cmd);
+      assert.equal(step.label, 'unified-field-types');
+      assert.equal(step.fatal, true);
+      assert.equal(gateClass(step), null);
+      assert.equal(step.cmd, cmd);
+    });
+  }
+});
+
 describe('check.mjs hoisting', () => {
   it('does not hoist a project script that merely has "audit" in its name', () => {
     // `runAudit` appends ` --json` to whatever was hoisted. A script that does not accept
