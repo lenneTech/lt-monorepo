@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.6](https://github.com/lenneTech/lt-monorepo/compare/v3.18.5...v3.18.6) (2026-11-10)
+
+### Bug Fixes
+
+* **check:** name the unified-field-types step in the report ([367e6a1](https://github.com/lenneTech/lt-monorepo/commit/367e6a1c7dc159ad500dd0b5576d87551d2f0719))
+
+### Chores
+
+* **deps:** raise oxlint to 1.93.0, oxfmt to 0.78.0 and pnpm to 11.28.11 ([e0e8cb7](https://github.com/lenneTech/lt-monorepo/commit/e0e8cb714be3780e8c2b1c01f2c5e19170d18dd7))
+
 ## [3.18.5](https://github.com/lenneTech/lt-monorepo/compare/v3.18.4...v3.18.5) (2026-11-09)
 
 ### CI/CD
