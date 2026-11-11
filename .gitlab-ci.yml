@@ -327,7 +327,12 @@ app:test:
     # app (ng-base-starter) reads NG_* on its SSR server at request time. Setting
     # both keeps this file frontend-agnostic, so `lt fullstack init` never has to
     # rewrite it; the set the app does not read is inert.
-    NUXT_API_URL: "http://localhost:3000"
+    # NUXT_API_URL names the same API by a second host on purpose. The starter's
+    # ssr-internal-api-url spec fails when that host appears in server-rendered
+    # HTML (an <img src> built with the internal address), and it can only tell
+    # the two apart when they differ: with one host for both it skips and the
+    # job stays green. The API listens on every address, so 127.0.0.1 answers.
+    NUXT_API_URL: "http://127.0.0.1:3000"
     NUXT_PUBLIC_API_URL: "http://localhost:3000"
     NUXT_PUBLIC_SITE_URL: "http://localhost:3001"
     NG_API_URL: "http://localhost:3000"
