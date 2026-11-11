@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { isKillablePid, killTreeWith } from './check.mjs';
+import { escalateWatchdog, isKillablePid, killTreeWith } from './check.mjs';
 
 /** Records every effect instead of performing it. `tree` maps a pid to its direct children. */
 function recorder(platform, tree = {}) {
@@ -147,6 +147,128 @@ describe('killTreeWith — POSIX', () => {
       calls.signal.map(([pid]) => pid),
       [200, 300, 100],
     );
+  });
+});
+
+describe('killTreeWith — SIGKILL escalation after the root died', () => {
+  // The watchdog's two passes, as seen in a generated Angular project: 100 is the step's
+  // `sh -c`, 101 pnpm, 102 pnpm's output helper (`trap '' TERM`). SIGTERM kills 100; 101 and
+  // 102 survive and are re-parented to init, so `pgrep -P 100` finds nothing five seconds later.
+  const BEFORE = { 100: [101], 101: [102] };
+  const AFTER = { 1: [101], 101: [102] };
+
+  it('returns the pids it signalled, leaves first', () => {
+    const { deps } = recorder('linux', BEFORE);
+    assert.deepEqual(killTreeWith(100, 'SIGTERM', deps), [102, 101, 100]);
+  });
+
+  it('starting from the dead root alone kills none of the survivors', () => {
+    // What the escalation did before: it signalled the dead root and nothing else.
+    const { calls, deps } = recorder('linux', AFTER);
+    killTreeWith(100, 'SIGKILL', deps);
+    assert.deepEqual(calls.signal, [[100, 'SIGKILL']]);
+  });
+
+  it('kills every survivor when it also starts from the pids SIGTERM saw', () => {
+    const termed = killTreeWith(100, 'SIGTERM', recorder('linux', BEFORE).deps);
+    const { calls, deps } = recorder('linux', AFTER);
+    killTreeWith([100, ...termed], 'SIGKILL', deps);
+    const killed = calls.signal.map(([pid]) => pid);
+    assert.ok(killed.includes(101) && killed.includes(102), `survivors not killed: ${JSON.stringify(killed)}`);
+    assert.ok(killed.indexOf(102) < killed.indexOf(101), 'leaves first');
+    assert.equal(new Set(killed).size, killed.length, 'a pid was signalled twice');
+    assert.ok(calls.signal.every(([, sig]) => sig === 'SIGKILL'));
+  });
+
+  it('also kills a child a survivor spawned between the two passes', () => {
+    const { calls, deps } = recorder('linux', { 101: [103] });
+    killTreeWith([100, 102, 101], 'SIGKILL', deps);
+    const killed = calls.signal.map(([pid]) => pid);
+    assert.ok(killed.indexOf(103) < killed.indexOf(101), `${JSON.stringify(killed)}`);
+  });
+
+  it('applies the pid gate to every root', () => {
+    const { calls, deps } = recorder('linux');
+    assert.deepEqual(killTreeWith([undefined, 1, 0, 4321], 'SIGKILL', deps), [4321]);
+    assert.deepEqual(calls.signal, [[4321, 'SIGKILL']]);
+  });
+
+  it('runs one taskkill per root on Windows', () => {
+    const { calls, deps } = recorder('win32');
+    assert.deepEqual(killTreeWith([5, 6], 'SIGKILL', deps), [5, 6]);
+    assert.deepEqual(calls.run, [
+      ['taskkill', ['/PID', '5', '/T', '/F']],
+      ['taskkill', ['/PID', '6', '/T', '/F']],
+    ]);
+  });
+});
+
+describe('escalateWatchdog — the sequence after a step went silent', () => {
+  // `capture` hands this its kill and settle effects. Without the SIGKILL from the SIGTERM
+  // pids, a TERM-ignoring survivor keeps the pipes open; without the settle, anything that
+  // escapes both passes does. Either way `check` hung for hours instead of failing.
+  const TERMED = [102, 101, 100];
+
+  /** Records every kill; the SIGTERM pass reports TERMED as signalled. */
+  function effects() {
+    const kills = [];
+    let settles = 0;
+    return {
+      kill: (signal, alsoPids) => {
+        kills.push([signal, alsoPids]);
+        return signal === 'SIGTERM' ? TERMED : [];
+      },
+      kills,
+      settle: () => {
+        settles += 1;
+      },
+      settles: () => settles,
+    };
+  }
+
+  it('sends SIGTERM at once and SIGKILL five seconds later, from every pid SIGTERM signalled', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const fx = effects();
+    escalateWatchdog(fx.kill, fx.settle);
+    assert.deepEqual(fx.kills, [['SIGTERM', []]]);
+    t.mock.timers.tick(4999);
+    assert.equal(fx.kills.length, 1);
+    t.mock.timers.tick(1);
+    assert.deepEqual(fx.kills, [
+      ['SIGTERM', []],
+      ['SIGKILL', TERMED],
+    ]);
+  });
+
+  it('settles the step two seconds after SIGKILL, once, when nothing closed it', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const fx = effects();
+    escalateWatchdog(fx.kill, fx.settle);
+    // Two ticks: a timer created inside a tick counts from the end of that tick.
+    t.mock.timers.tick(5000);
+    t.mock.timers.tick(1999);
+    assert.equal(fx.settles(), 0);
+    t.mock.timers.tick(1);
+    assert.equal(fx.settles(), 1);
+    t.mock.timers.tick(60_000);
+    assert.equal(fx.settles(), 1);
+  });
+
+  it('stops what is still pending once the step closed on its own', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const beforeKill = effects();
+    escalateWatchdog(beforeKill.kill, beforeKill.settle)();
+    t.mock.timers.tick(60_000);
+    assert.deepEqual(beforeKill.kills, [['SIGTERM', []]]);
+    assert.equal(beforeKill.settles(), 0);
+
+    const afterKill = effects();
+    const cancel = escalateWatchdog(afterKill.kill, afterKill.settle);
+    t.mock.timers.tick(5000);
+    cancel();
+    t.mock.timers.tick(60_000);
+    assert.equal(afterKill.kills.length, 2);
+    assert.equal(afterKill.settles(), 0);
   });
 });
 

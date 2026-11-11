@@ -498,21 +498,31 @@ export function killTreePlan(pid, signal, platform = process.platform) {
  * POSIX order is leaves first, so a parent cannot respawn a child that was just killed, and
  * each pid is signalled at most once. Pids a lookup returns pass the same check as the root —
  * a stray 1 in `pgrep` output must not become a signal to init.
+ *
+ * `pid` may be a list of roots, and the return value is the list of pids that were signalled.
+ * Both exist for the SIGKILL escalation: it must start from every pid the SIGTERM pass saw,
+ * not only from the root. Once SIGTERM killed the step's `sh -c`, its children are re-parented
+ * to init, `pgrep -P <dead root>` finds nothing, and a child that survived SIGTERM (pnpm
+ * waiting on its TERM-ignoring output helper) was never killed. It kept the step's pipes open,
+ * so `close` never fired and `check` hung for hours instead of reporting the watchdog.
  */
 export function killTreeWith(pid, sig, { childrenOf, platform, run, signal }) {
   for (const [name, fn] of Object.entries({ childrenOf, run, signal })) {
     if (typeof fn !== 'function') throw new TypeError(`killTreeWith: \`${name}\` must be injected`);
   }
   if (typeof platform !== 'string') throw new TypeError('killTreeWith: `platform` must be injected');
-  const plan = killTreePlan(pid, sig, platform);
-  if (!plan) return;
-  if (plan.command) {
-    try {
-      run(plan.command, plan.args);
-    } catch {
-      /* already gone, or taskkill refused — nothing further to try */
+  const roots = (Array.isArray(pid) ? pid : [pid]).filter((p) => killTreePlan(p, sig, platform));
+  if (roots.length === 0) return [];
+  if (platform === 'win32') {
+    for (const p of roots) {
+      const plan = killTreePlan(p, sig, platform);
+      try {
+        run(plan.command, plan.args);
+      } catch {
+        /* already gone, or taskkill refused — nothing further to try */
+      }
     }
-    return;
+    return roots;
   }
   const seen = new Set();
   const order = [];
@@ -528,14 +538,15 @@ export function killTreeWith(pid, sig, { childrenOf, platform, run, signal }) {
     for (const c of children) collect(c);
     order.push(p);
   };
-  collect(pid);
+  for (const root of roots) collect(root);
   for (const p of order) {
     try {
-      signal(p, plan.signal);
+      signal(p, sig);
     } catch {
       /* already gone */
     }
   }
+  return order;
 }
 
 /** Direct children of `pid` via `pgrep -P`; empty when there are none (pgrep exits 1). */
@@ -549,13 +560,40 @@ function pgrepChildren(pid) {
 // Best-effort kill of a child's whole process tree (sh → pnpm → vitest →
 // fork workers). Killing only the direct child orphans the tree — exactly the
 // zombie workers a deadlock leaves behind.
-function killTree(child, signal = 'SIGTERM') {
-  killTreeWith(child.pid, signal, {
+function killTree(child, signal = 'SIGTERM', alsoPids = []) {
+  return killTreeWith([child.pid, ...alsoPids], signal, {
     childrenOf: pgrepChildren,
     platform: process.platform,
     run: (command, args) => execFileSync(command, args, { stdio: 'ignore' }),
     signal: (pid, sig) => process.kill(pid, sig),
   });
+}
+
+/**
+ * What the watchdog does once a step stayed silent for the whole window: SIGTERM the step's
+ * tree at once, SIGKILL it five seconds later, and settle the step two seconds after that.
+ *
+ * The SIGKILL starts from every pid the SIGTERM pass signalled, because the root is dead by
+ * then and its survivors hang off init (see killTreeWith). The settle covers whatever still
+ * holds the step's pipes after both passes: a step the watchdog killed must end as a failure,
+ * never as a hang.
+ *
+ * `kill(signal, alsoPids)` returns the pids it signalled and `settle()` ends the step. Both are
+ * injected, so the sequence is tested with mocked timers and no real process. Returns a
+ * function that cancels what is still pending, for a step that closed on its own meanwhile.
+ */
+export function escalateWatchdog(kill, settle) {
+  const termed = kill('SIGTERM', []);
+  let settleTimer = null;
+  const killTimer = setTimeout(() => {
+    kill('SIGKILL', termed);
+    settleTimer = setTimeout(settle, 2000);
+  }, 5000);
+  killTimer.unref?.();
+  return () => {
+    clearTimeout(killTimer);
+    clearTimeout(settleTimer);
+  };
 }
 
 // idleTimeoutMs > 0 arms the no-output watchdog for this child; 0 (the default)
@@ -576,19 +614,24 @@ function capture(cmd, cwd, idleTimeoutMs = 0, extraEnv = null) {
     RUNNING.add(child);
     let out = '';
     let idleTimer = null;
-    let killTimer = null;
+    let cancelEscalation = null;
+    let settled = false;
     let watchdogHit = false;
     // Any output resets the watchdog — only complete silence for the full
-    // window counts as wedged. Escalate to SIGKILL for processes that ignore
-    // SIGTERM.
+    // window counts as wedged. What follows is escalateWatchdog's job.
     const armWatchdog = () => {
       if (!idleTimeoutMs) return;
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         watchdogHit = true;
-        killTree(child);
-        killTimer = setTimeout(() => killTree(child, 'SIGKILL'), 5000);
-        killTimer.unref();
+        cancelEscalation = escalateWatchdog(
+          (signal, alsoPids) => killTree(child, signal, alsoPids),
+          () => {
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+            done(1);
+          },
+        );
       }, idleTimeoutMs);
     };
     const onData = (d) => {
@@ -600,8 +643,10 @@ function capture(cmd, cwd, idleTimeoutMs = 0, extraEnv = null) {
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
     const done = (code, extra) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(idleTimer);
-      clearTimeout(killTimer);
+      cancelEscalation?.();
       RUNNING.delete(child);
       if (watchdogHit) {
         const note =
