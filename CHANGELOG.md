@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.7](https://github.com/lenneTech/lt-monorepo/compare/v3.18.6...v3.18.7) (2026-11-11)
+
+### Bug Fixes
+
+* **check:** kill the watchdog's survivors and always settle the step ([a17c276](https://github.com/lenneTech/lt-monorepo/commit/a17c2768b2279da60d08a1a8fc45d76bc7307808))
+
+### CI/CD
+
+* give the E2E jobs an internal API address of their own ([a54cdce](https://github.com/lenneTech/lt-monorepo/commit/a54cdce5f40f44224532d431821fd9bbcd278d5b))
+
 ## [3.18.6](https://github.com/lenneTech/lt-monorepo/compare/v3.18.5...v3.18.6) (2026-11-10)
 
 ### Bug Fixes
