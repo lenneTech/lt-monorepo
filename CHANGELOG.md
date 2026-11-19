@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.8](https://github.com/lenneTech/lt-monorepo/compare/v3.18.7...v3.18.8) (2026-11-19)
+
+### Bug Fixes
+
+* **check:** keep a withdrawn advisory's suppression until npm stops listing it ([42dac72](https://github.com/lenneTech/lt-monorepo/commit/42dac7252ef7af8f9be2bcda64add51dddad0801))
+
+### CI/CD
+
+* move the E2E jobs to the Playwright 1.65.1 image ([8ee139c](https://github.com/lenneTech/lt-monorepo/commit/8ee139c839f494cc8e32c58ce1541511e9bed029))
+
+### Chores
+
+* **deps:** raise oxlint to 1.94.0, oxfmt to 0.79.0 and pnpm to 11.28.12 ([7cf39d8](https://github.com/lenneTech/lt-monorepo/commit/7cf39d80dba4258b98d774c6cb24b3b4fa1f3f1e))
+
 ## [3.18.7](https://github.com/lenneTech/lt-monorepo/compare/v3.18.6...v3.18.7) (2026-11-11)
 
 ### Bug Fixes
