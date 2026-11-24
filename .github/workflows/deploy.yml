@@ -29,13 +29,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Gate: run the deploy pipeline only when TurboOps is actually configured
-  # (TURBOOPS_PROJECT via repo variable or secret, plus the TURBOOPS_TOKEN
-  # secret). This keeps the workflow inert in the lt-monorepo TEMPLATE itself —
-  # no TurboOps project exists there, so a push is just a push — while every
-  # generated project (which sets both via `lt deployment create`) still runs
-  # the full test -> build-push -> deploy pipeline. Without this the template's
-  # own pushes failed the pipeline on every commit at the TurboOps guard.
+  # Gate: run the deploy pipeline only once a TurboOps setup was started
+  # (TURBOOPS_PROJECT via repo variable or secret, or the TURBOOPS_TOKEN secret).
+  # This keeps the workflow inert in the lt-monorepo TEMPLATE itself and in any
+  # project that does not deploy to TurboOps (yet), so a push is just a push,
+  # while every project that sets them via `lt deployment create` still runs the
+  # full test -> build-push -> deploy pipeline. Without this the template's own
+  # pushes failed the pipeline on every commit at the TurboOps guard.
+  # Either value is enough to open the gate, deliberately: a half-finished setup
+  # must reach the guard, which names the missing value, instead of skipping the
+  # deploy silently. Same gate as .gitlab-ci.yml.
   guard:
     runs-on: ubuntu-latest
     outputs:
@@ -46,11 +49,11 @@ jobs:
           HAS_PROJECT: ${{ vars.TURBOOPS_PROJECT != '' || secrets.TURBOOPS_PROJECT != '' }}
           HAS_TOKEN: ${{ secrets.TURBOOPS_TOKEN != '' }}
         run: |
-          if [ "$HAS_PROJECT" = "true" ] && [ "$HAS_TOKEN" = "true" ]; then
+          if [ "$HAS_PROJECT" = "true" ] || [ "$HAS_TOKEN" = "true" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "TurboOps not configured (TURBOOPS_PROJECT / TURBOOPS_TOKEN unset) — skipping deploy. Expected in the lt-monorepo template."
+            echo "TurboOps not configured (neither TURBOOPS_PROJECT nor TURBOOPS_TOKEN set) — skipping deploy. Expected in the lt-monorepo template and in projects that do not deploy to TurboOps."
           fi
 
   test:

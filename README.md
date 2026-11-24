@@ -320,6 +320,8 @@ To deploy the project and use new features, you need to follow these steps:
 3. Push or merge changes in the main-branch
    > The changes automatically get deployed on the production system
 
+Deployments run on TurboOps; `lt deployment create` prints the setup. As long as neither `TURBOOPS_PROJECT` nor `TURBOOPS_TOKEN` is set as a CI/CD variable, the pipelines skip the TurboOps build and deploy jobs, so a project that does not deploy to TurboOps (yet) keeps green pipelines. GitLab passes protected variables only to protected branches: if you protect the two variables, protect `dev` as well, or its deploy jobs do not appear.
+
 New deployments keep the old database. Make sure that your system might not work properly with the new features and an old db-instance
 
 ### Build identity / drift detection

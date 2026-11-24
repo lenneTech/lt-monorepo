@@ -19,11 +19,22 @@
 // copy of the script in scripts/.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+
+import { splitGithubJobs, splitTopLevelBlocks, stripComments } from './check-ci-consistency.mjs';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const REPO = join(SCRIPTS, '..');
@@ -321,5 +332,100 @@ describe('check-playwright-image.mjs', () => {
     assert.match(res.stderr, /WARN/);
     assert.match(res.stderr, /nothing compared/);
     assert.doesNotMatch(res.stdout, /\bok\b/);
+  });
+});
+
+describe('turboops-guard.sh', () => {
+  // The guard fails a job on purpose when the TurboOps setup is incomplete. That is right once a
+  // project deploys to TurboOps, and wrong everywhere else: in a GitLab project without TurboOps,
+  // the template included, every dev/main pipeline went red at the guard, and real failures got
+  // lost among those red pipelines. So every job that runs the guard sits behind a gate that skips
+  // it while neither TURBOOPS_PROJECT nor TURBOOPS_TOKEN is set. Either value opens the gate, on
+  // purpose: a half-finished setup (one value forgotten, or a protected variable on an unprotected
+  // branch) has to reach the guard, which names what is missing. Requiring both would skip the
+  // deploy silently instead, with a green pipeline.
+  const GITLAB_GATE = /^ {4}-\s*if:\s*['"]?\(\$TURBOOPS_PROJECT \|\| \$TURBOOPS_TOKEN\) && /;
+  const GITHUB_GATE = /^ {4}if:\s*\$\{\{\s*needs\.guard\.outputs\.configured == 'true'/m;
+  const isTemplate = () => JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')).name === 'lt-monorepo';
+  // A generated project may delete a pipeline it does not use: GitLab-only projects drop
+  // deploy.yml and keep test.yml. There the file reads as empty, so the test skips instead of
+  // crashing on ENOENT. The template ships both files, so a missing one still fails here.
+  const readCi = (file) => (isTemplate() || existsSync(join(REPO, file)) ? readFileSync(join(REPO, file), 'utf8') : '');
+
+  /** GitLab jobs that run the guard, each with the rule entries that would start it ungated. */
+  function gitlabGuardJobs(text) {
+    const out = {};
+    for (const [name, body] of Object.entries(splitTopLevelBlocks(stripComments(text)))) {
+      if (name.startsWith('.') || !body.includes('turboops-guard')) continue;
+      const rules = /^ {2}rules:\s*\n((?: {4}.*\n?)*)/m.exec(body)?.[1] ?? '';
+      const entries = rules.split('\n').filter((l) => /^ {4}-/.test(l));
+      out[name] = entries.length ? entries.filter((l) => !GITLAB_GATE.test(l)) : ['no `rules:`, so it runs ungated'];
+    }
+    return out;
+  }
+
+  /** GitHub jobs that run the guard, each with what is missing from its gate. */
+  function githubGuardJobs(text) {
+    const out = {};
+    for (const [name, body] of Object.entries(splitGithubJobs(stripComments(text)))) {
+      if (!body.includes('turboops-guard.sh')) continue;
+      out[name] = GITHUB_GATE.test(body) && /^ {4}needs:.*\bguard\b/m.test(body) ? [] : ['not behind the guard job'];
+    }
+    return out;
+  }
+
+  it('keeps every GitLab job that runs the guard behind the gate', (t) => {
+    const jobs = gitlabGuardJobs(readCi('.gitlab-ci.yml'));
+    if (isTemplate()) {
+      assert.deepEqual(Object.keys(jobs).sort(), ['deploy-dev', 'deploy-prod', 'turboops-build']);
+    } else if (Object.keys(jobs).length === 0) {
+      t.skip('no GitLab job runs turboops-guard.sh — this project does not deploy to TurboOps from GitLab');
+      return;
+    }
+    for (const [name, open] of Object.entries(jobs)) {
+      assert.deepEqual(open, [], `${name} starts without the TurboOps gate ($TURBOOPS_PROJECT || $TURBOOPS_TOKEN)`);
+    }
+  });
+
+  it('keeps every GitHub job that runs the guard behind the gate', (t) => {
+    const text = readCi('.github/workflows/deploy.yml');
+    const jobs = githubGuardJobs(text);
+    if (isTemplate()) {
+      assert.deepEqual(Object.keys(jobs).sort(), ['build-push', 'deploy']);
+    } else if (Object.keys(jobs).length === 0) {
+      t.skip('no GitHub job runs turboops-guard.sh — this project does not deploy to TurboOps from GitHub');
+      return;
+    }
+    for (const [name, open] of Object.entries(jobs)) {
+      assert.deepEqual(open, [], `${name} starts without the TurboOps gate`);
+    }
+    assert.match(
+      text,
+      /\[ "\$HAS_PROJECT" = "true" \] \|\| \[ "\$HAS_TOKEN" = "true" \]/,
+      'either value must open the gate',
+    );
+  });
+
+  it('flags a guard job that is not behind the gate', () => {
+    const job = (rules) => `deploy-dev:\n  before_script:\n    - !reference [.turboops-guard, script]\n${rules}`;
+    const branchOnly = gitlabGuardJobs(job(`  rules:\n    - if: '$CI_COMMIT_BRANCH == "dev"'\n`));
+    assert.equal(branchOnly['deploy-dev'].length, 1, 'a branch-only rule must be flagged');
+    const bothRequired = gitlabGuardJobs(
+      job(`  rules:\n    - if: '$TURBOOPS_PROJECT && $TURBOOPS_TOKEN && $CI_COMMIT_BRANCH == "dev"'\n`),
+    );
+    assert.equal(bothRequired['deploy-dev'].length, 1, 'requiring both values skips a half-finished setup silently');
+    const onlyKeyword = gitlabGuardJobs(job('  only:\n    - dev\n'));
+    assert.equal(onlyKeyword['deploy-dev'].length, 1, 'a job without rules must be flagged');
+    const gated = gitlabGuardJobs(
+      job(
+        `  rules:\n    - if: '($TURBOOPS_PROJECT || $TURBOOPS_TOKEN) && $CI_COMMIT_BRANCH == "dev"'\n      when: on_success\n`,
+      ),
+    );
+    assert.deepEqual(gated['deploy-dev'], []);
+
+    const ungatedGithub = githubGuardJobs(
+      'jobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: sh scripts/turboops-guard.sh\n',
+    );
+    assert.equal(ungatedGithub.deploy.length, 1, 'a GitHub job outside the guard job must be flagged');
   });
 });

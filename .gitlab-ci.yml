@@ -511,6 +511,16 @@ build:
 # when the arg changes, so the cache never served a stale SHA. The real cause was that
 # `pnpm --filter app` matched no package and exits 0, so `nuxt build` silently never ran
 # and the image shipped whatever `.output` the build context happened to carry.
+#
+# TurboOps gate: every job that runs the guard starts its rules with
+# `($TURBOOPS_PROJECT || $TURBOOPS_TOKEN) &&`. Without it, a GitLab project that does not
+# deploy to TurboOps (yet), the template included, failed every dev/main pipeline at the
+# guard on purpose, and real failures got lost among those red pipelines. With neither
+# variable set the three jobs are not created. One of them set means a setup was started,
+# and then the jobs run and the guard names what is missing, as before. Mind protected
+# variables: GitLab only exposes them to protected branches, so with both variables
+# protected and `dev` unprotected the dev jobs do not appear at all; protect `dev` too.
+# scripts/guard-scripts.test.mjs keeps every guard job behind this gate (also GitHub's).
 # ======================================================================================================================
 turboops-build:
   stage: turboops-build
@@ -544,7 +554,7 @@ turboops-build:
     - docker compose -f docker-compose.yml build api app
     - docker compose -f docker-compose.yml push api app
   rules:
-    - if: '$CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "main"'
+    - if: '($TURBOOPS_PROJECT || $TURBOOPS_TOKEN) && ($CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "main")'
 
 # dev branch → `dev` stage
 # The CLI is pinned to its major: an unpinned `npm install -g` would let a
@@ -566,7 +576,7 @@ deploy-dev:
     # registry/<slug>/<name> with a slash) → "not found in registry".
     - turbo deploy dev --compose docker-compose.yml --wait
   rules:
-    - if: '$CI_COMMIT_BRANCH == "dev"'
+    - if: '($TURBOOPS_PROJECT || $TURBOOPS_TOKEN) && $CI_COMMIT_BRANCH == "dev"'
 
 # main branch → `production` stage
 deploy-prod:
@@ -592,4 +602,4 @@ deploy-prod:
   # deploy) rather than open, which is the correct direction.
   # `dev` can be tightened the same way once that branch is protected too.
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true"'
+    - if: '($TURBOOPS_PROJECT || $TURBOOPS_TOKEN) && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true"'
