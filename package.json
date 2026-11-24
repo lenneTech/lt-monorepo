@@ -49,12 +49,12 @@
   "devDependencies": {
     "cross-env": "10.1.0",
     "husky": "9.1.7",
-    "oxfmt": "0.79.0",
-    "oxlint": "1.94.0"
+    "oxfmt": "0.80.0",
+    "oxlint": "1.95.0"
   },
   "engines": {
     "node": ">= 22",
     "pnpm": "^11.0.0"
   },
-  "packageManager": "pnpm@11.28.12+sha512.94833387e35d503e8ad1010417cdeb82c120e7e69bafdf0a9db0690515beae7159274571e692b96abc2a085d3566fec54381afd978f65f64a85362dfd7e108f7"
+  "packageManager": "pnpm@11.29.0+sha512.d913f9b37cd5fe6780052e809774edabb7bdcf69a6e6d9b8fd3b38bc052fa8a7d891b6c201a38fb504a07ffce2e5e8c262ef54fb8f57db62f22d353a30bc8a96"
 }
