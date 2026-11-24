@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.18.9](https://github.com/lenneTech/lt-monorepo/compare/v3.18.8...v3.18.9) (2026-11-24)
+
+### Bug Fixes
+
+* **ci:** create the TurboOps jobs only when TurboOps is configured ([ff79bde](https://github.com/lenneTech/lt-monorepo/commit/ff79bde15f8d85ff0631e7e7b4b023d383b70a00))
+
+### Chores
+
+* **deps:** raise oxlint to 1.95.0, oxfmt to 0.80.0 and pnpm to 11.29.0 ([4ffd51b](https://github.com/lenneTech/lt-monorepo/commit/4ffd51bdb924ecbe408cdd19a5bccff784e8eecf))
+
 ## [3.18.8](https://github.com/lenneTech/lt-monorepo/compare/v3.18.7...v3.18.8) (2026-11-19)
 
 ### Bug Fixes
